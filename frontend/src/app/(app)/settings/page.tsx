@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
 import { formatCountdown } from "@/lib/format";
+import { timezoneOptions } from "@/lib/timezones";
 import {
   useCalendarConnections,
   useCalendarProviders,
@@ -45,7 +46,6 @@ import {
   useSettings,
   useStartOAuth,
   useSyncConnection,
-  useTimezones,
   useUpdateCalendarSelection,
   useUpdateSettings,
 } from "@/lib/queries";
@@ -382,7 +382,6 @@ function CalendarSettings() {
 
 function WorkspaceSettings() {
   const { data: settings, isLoading } = useSettings();
-  const { data: timezones } = useTimezones();
   const updateSettings = useUpdateSettings();
 
   if (isLoading || !settings) return <Skeleton className="h-96" />;
@@ -436,9 +435,9 @@ function WorkspaceSettings() {
               name="default_timezone"
               defaultValue={settings.default_timezone}
             >
-              {(timezones ?? []).map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
+              {timezoneOptions(settings.default_timezone).map((zone) => (
+                <option key={zone.value} value={zone.value}>
+                  {zone.label}
                 </option>
               ))}
             </NativeSelect>

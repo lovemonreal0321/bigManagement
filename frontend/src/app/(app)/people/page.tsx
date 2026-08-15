@@ -31,9 +31,13 @@ import {
   usePersonArchive,
   usePersonColors,
   useSettings,
-  useTimezones,
   useUpdatePerson,
 } from "@/lib/queries";
+import {
+  DEFAULT_TIMEZONE,
+  timezoneOptions,
+  timezoneShort,
+} from "@/lib/timezones";
 import type { PersonWithStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -137,7 +141,7 @@ export default function PeoplePage() {
                     {person.email ?? person.name}
                   </p>
                   <p className="text-[11px] text-subtle-foreground">
-                    {person.timezone}
+                    {timezoneShort(person.timezone)}
                   </p>
                 </div>
 
@@ -235,7 +239,6 @@ function PersonDialog({
   person: PersonWithStats | null;
 }) {
   const { data: colors } = usePersonColors();
-  const { data: timezones } = useTimezones();
   const { data: settings } = useSettings();
   const createPerson = useCreatePerson();
   const updatePerson = useUpdatePerson();
@@ -331,12 +334,12 @@ function PersonDialog({
                 id="person-tz"
                 name="timezone"
                 defaultValue={
-                  person?.timezone ?? settings?.default_timezone ?? "UTC"
+                  person?.timezone ?? settings?.default_timezone ?? DEFAULT_TIMEZONE
                 }
               >
-                {(timezones ?? []).map((zone) => (
-                  <option key={zone} value={zone}>
-                    {zone}
+                {timezoneOptions(person?.timezone).map((zone) => (
+                  <option key={zone.value} value={zone.value}>
+                    {zone.label}
                   </option>
                 ))}
               </NativeSelect>

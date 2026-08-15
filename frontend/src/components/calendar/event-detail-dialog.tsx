@@ -37,6 +37,7 @@ import {
   useInterviewTypes,
   useLinkEvent,
 } from "@/lib/queries";
+import { timezoneShort } from "@/lib/timezones";
 import type { CalendarFeedEvent } from "@/lib/types";
 import { EVENT_CLASSIFICATIONS } from "@/lib/types";
 
@@ -86,7 +87,7 @@ export function EventDetailDialog({
                 {event.person_name}
               </p>
               <p className="text-xs text-muted-foreground">
-                {event.timezone ?? tz ?? "Workspace time"}
+                {timezoneShort(event.timezone ?? tz) || "Workspace time"}
               </p>
             </div>
             <div className="flex-1" />

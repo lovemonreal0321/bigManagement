@@ -672,14 +672,6 @@ export function useUpdateSettings() {
   });
 }
 
-export function useTimezones() {
-  return useQuery({
-    queryKey: ["settings", "timezones"],
-    queryFn: () => api.get<string[]>("/settings/timezones"),
-    staleTime: Infinity,
-  });
-}
-
 // --------------------------------------------------------------------------
 // People mutations
 // --------------------------------------------------------------------------

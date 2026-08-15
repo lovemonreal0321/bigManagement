@@ -125,7 +125,9 @@ PEOPLE = [
         "initials": "SL",
         "color": "#0d9488",
         "email": "sarah@example.com",
-        "timezone": "Europe/Berlin",
+        # The app offers PST/CST/EST only, so the demo cast spans exactly those
+        # three — Sarah works remotely from the west coast.
+        "timezone": "America/Los_Angeles",
     },
 ]
 
