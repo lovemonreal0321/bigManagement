@@ -1,0 +1,39 @@
+[tool.ruff]
+line-length = 90
+target-version = "py312"
+exclude = [".venv", "alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "DTZ",  # naive-datetime misuse — the rule this codebase most cares about
+    "RUF",  # ruff-specific
+]
+ignore = [
+    # `datetime.combine(..., tzinfo=...)` is the timezone-correct call this
+    # project already uses; the rule fires on it anyway.
+    "DTZ001",
+    # Long strings in docstrings and user-facing messages are not worth
+    # wrapping mid-sentence.
+    "E501",
+    # PEP 695 generics on a Pydantic model are not worth the churn: `Page[T]`
+    # works today and is used as a FastAPI response model, where the older
+    # `Generic[T]` form is the better-trodden path.
+    "UP046",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests pin explicit calendar dates and construct naive datetimes on purpose —
+# several exist precisely to prove naive values are rejected.
+"tests/*" = ["DTZ001", "DTZ005", "DTZ011", "RUF059"]
+# Enum-style constant tables read better unannotated.
+"app/enums.py" = ["RUF012"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

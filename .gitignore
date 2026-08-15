@@ -1,0 +1,32 @@
+# --- secrets ---------------------------------------------------------------
+.env
+.env.local
+!.env.example
+
+# --- python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- database --------------------------------------------------------------
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+# --- node / next -----------------------------------------------------------
+node_modules/
+.next/
+out/
+next-env.d.ts
+.turbo/
+
+# --- editors / os ----------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp

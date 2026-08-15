@@ -1,0 +1,435 @@
+# Job Search Command Center
+
+Track applications, interviews, follow-ups and calendars for several people in
+one shared workspace.
+
+The calendar is the source of truth for **when** things happen, applications
+answer **where each opportunity stands**, the interview journey answers **what
+has happened with this company**, follow-ups answer **what needs my attention**,
+and analytics answer **how the search is actually going**.
+
+- **Frontend** — Next.js 16 (App Router) + React 19 + TypeScript + Tailwind v4
+- **Backend** — FastAPI + SQLAlchemy 2 + Alembic
+- **Database** — SQLite (a single file, no server to run)
+- **Calendars** — Google Calendar and Microsoft Graph, behind one provider-agnostic interface
+- **Email** — Gmail (OAuth) and Yahoo/iCloud/Outlook (IMAP), read-only
+- **AI** — Moonshot / Kimi, used only to read the emails behind an interview
+
+---
+
+## Quick start
+
+Two terminals. Ports are **3100** (frontend) and **8100** (backend) — chosen
+because 3000/8000 are so often already taken.
+
+### 1. Backend
+
+```bash
+cd backend
+
+# One-time setup
+python3 -m venv .venv           # or: uv venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+cp .env.example .env
+
+# Load demo data (3 people, 38 applications, 40 interviews, follow-ups)
+.venv/bin/python -m app.seed
+
+# Run
+.venv/bin/uvicorn app.main:app --reload --port 8100
+```
+
+Migrations run automatically on startup, so there is no separate step. API docs
+are at <http://localhost:8100/docs>.
+
+### 2. Frontend
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev -- --port 3100
+```
+
+Open <http://localhost:3100> and sign in:
+
+| Username   | Password   |
+| ---------- | ---------- |
+| `admin321` | `admin321` |
+
+Both are set by `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `backend/.env`, and are
+re-applied on every start — change them there and restart.
+
+> **Skip the demo data?** Run `python -m app.seed --keep` (seeds only an empty
+> workspace) or simply never run the seed. Re-running `python -m app.seed`
+> wipes the demo rows and recreates them.
+
+---
+
+## What is where
+
+```
+backend/
+  app/
+    core/        config, database, security, error translation, timezone helpers
+    models/      SQLAlchemy models (17 tables)
+    schemas/     Pydantic request/response models
+    domains/     business logic, one package per domain
+      people/  applications/  interviews/  followups/
+      calendar/  email/  ai/  analytics/  dashboard/  activity/  auth/
+    api/v1/      HTTP routes — thin, they call into domains
+    workers/     background scheduler (calendar sync, follow-up maintenance)
+    seed.py      demo data
+  alembic/       migrations
+  tests/         250 tests
+
+frontend/
+  src/
+    app/         routes: dashboard, calendar, applications, follow-ups,
+                 analytics, people, settings, login
+    components/  ui primitives, shared badges, and one folder per feature
+    lib/         api client, query hooks, types, formatting, calendar geometry
+```
+
+Business logic lives in `domains/`, never in routes or React components.
+
+---
+
+## The parts worth knowing about
+
+### The global person selector
+
+The header filter scopes **every** page — calendar, pipeline, follow-ups,
+analytics, dashboard metrics. Click a chip to toggle someone, double-click to
+show only them, or use the dropdown for Select all / Clear / Only.
+
+"Everyone" is stored as an *empty* selection rather than a list of all ids, so
+a newly added person is included automatically instead of being invisible until
+you re-select. The choice persists in `localStorage`, and ids for archived or
+deleted people are dropped on read.
+
+### Calendar is the source of truth
+
+When a synced event moves, the interview linked to it moves with it, and the
+change is written to the activity log. When the provider cancels an event, the
+interview is marked cancelled — unless it is already completed, because
+deleting a past event should not erase the fact that it happened.
+
+Interviews created in the app can be pushed **out** to a connected calendar.
+The app only ever rewrites events it created itself; anything that came from
+your own calendar is never overwritten (`InterviewEvent.source` decides).
+
+Sync is idempotent: a unique `(calendar, provider_event_id)` index means
+re-running it updates rows instead of duplicating them. The same meeting
+invited to two connected accounts is recognised by its iCalUID *and start
+time*, so a duplicate is skipped without collapsing a recurring series into a
+single event.
+
+### Interviews: stages vs. events
+
+A **stage** is a step in the hiring process. An **event** is a block of time. A
+final loop is *one stage with four events*:
+
+```
+Final Loop  (one stage)
+  09:00  Behavioral
+  10:00  System Design
+  11:30  ML Technical
+  14:00  Hiring Manager
+```
+
+Every stage carries a **step tag** — `R2 · Technical`, `Recruiter`,
+`R3 · Final` — rendered everywhere the stage appears: calendar chips, pipeline
+cards, journey timeline, upcoming lists, follow-up rows. Unnumbered processes
+show just the type, because `R None · Technical` would be worse than nothing.
+
+### Status vs. outcome
+
+Deliberately two fields, because they answer different questions:
+
+- **status** — has it happened? `planned → scheduled → completed / cancelled / no_show`
+- **outcome** — what was the result? `pending → waiting → passed / failed / …`
+
+`status = completed, outcome = waiting` is a normal, expected state. Impossible
+combinations are corrected automatically (recording "passed" on a scheduled
+interview also marks it completed).
+
+### Follow-ups
+
+`overdue` and `due_today` are **derived at read time** from the due date and the
+viewer's timezone, never stored. Storing them would need a nightly job to stay
+honest and would be wrong for anyone in another timezone.
+
+Automation suggests, it does not act. After an interview is completed the app
+proposes a follow-up N business days later; you accept, change the date, or
+dismiss it. The rules that *close* follow-ups (an offer arrived, the next round
+got scheduled) run automatically, because retiring a task that events have
+overtaken is not the same as inventing work.
+
+### Analytics
+
+Every rate is computed from real rows and carries its numerator and denominator.
+`null` means "no data", which the UI renders as `—`, never as 0%.
+
+| Metric | Definition |
+| --- | --- |
+| Interview pass rate | `passed / (passed + failed)` — scheduled, waiting, cancelled and rescheduled are excluded from the denominator |
+| Application → Interview | applications with ≥1 interview actually booked or held / applications submitted |
+| First → Next round | applications with ≥2 real interviews / applications with ≥1 |
+| Final → Offer | applications that reached an offer / applications that reached a final round |
+| Offer acceptance | accepted / applications that reached an offer |
+
+Two period anchors, applied consistently and captioned in the UI:
+
+- **Application-anchored** (counts, funnel, conversions) covers applications
+  *submitted* in the period. Their interviews count whenever they happened, so
+  an application submitted yesterday is not penalised for not having converted.
+- **Interview-anchored** (interview counts, pass rates, by-type) covers
+  interviews that *took place* in the period.
+
+An offer that was later declined still counts as an offer — the activity log is
+consulted, not just the current status.
+
+The full definitions are served at `GET /api/v1/analytics/formulas` and shown
+behind the "How these are counted" button on the Analytics page.
+
+### AI enrichment: the calendar triggers, email fills in the blanks
+
+Manual entry is always available, but the intended path is that you never need
+it. The chain is:
+
+1. An interview-shaped event lands on a connected calendar.
+2. The app finds the emails tied to **that event** — the people on the invite,
+   in a window around that date. Your mailbox is never scanned generally, and
+   an event with no external attendee triggers no search at all.
+3. Kimi reads those emails and answers one question: what interview is this —
+   which company, which role, and **which round**.
+4. Confident results create or extend the application automatically. Anything
+   less certain waits in the review feed.
+
+Everything it does is reversible. The "Created by AI" feed on the dashboard
+shows each action, how sure the model was, and which emails it read — with an
+**Undo** that removes exactly what that run created. If it added a round to an
+application you already had, undo removes the round and leaves your application
+alone.
+
+Guard rails worth knowing about:
+
+- **The model may not invent a round number.** If the emails do not establish
+  it, the field comes back null and the app falls back to this application's own
+  sequence, which is at least true of data you hold.
+- **No company, no record.** An extraction without a company is never applied.
+- **Idempotent per event** — re-running never duplicates an interview, and a
+  second round on a known company reuses that application ("Acme" and
+  "Acme Inc." are treated as the same employer).
+- **It works without a key.** With `KIMI_API_KEY` unset, every AI surface says
+  so and the rest of the app is unaffected.
+
+### Person colours
+
+One colour per person, used consistently on calendar, cards, charts and badges,
+and kept strictly separate from the semantic status palette (blue = scheduled,
+green = passed, amber = waiting…). The two systems never share a meaning.
+
+The palette **order** was checked with a colour-vision validator rather than by
+eye, against both light and dark surfaces: worst adjacent pair ΔE 10.1 under
+deuteranopia (threshold 8) and 19.5 with normal vision (threshold 15). An
+earlier ordering had pink and green in slots 2 and 3 at ΔE 6.1 — the second and
+third people added would have been hard to tell apart.
+
+### Conflict detection
+
+A conflict is only ever between two events belonging to the **same person**.
+John at 10:00 and David at 10:00 is the normal state of a shared workspace, not
+a problem. Back-to-back interviews do not conflict; overlapping ones do.
+
+---
+
+## Email setup (optional)
+
+### Gmail — OAuth
+
+Reuses the Google project from the calendar setup below:
+
+1. Enable the **Gmail API** in the same Google Cloud project
+2. Add a second authorised redirect URI to the *same* OAuth client:
+   `http://localhost:8100/api/v1/email/oauth/google/callback`
+3. **Settings → Email & AI → Connect Gmail** next to a person
+
+Scope requested is `gmail.readonly` — the app never sends, deletes or modifies
+mail.
+
+### Yahoo — IMAP with an app password
+
+Yahoo closed its OAuth/API partner programme to new third-party apps, so
+"Sign in with Yahoo" is not available to this app. Use an app password:
+
+1. Yahoo → **Account Security → Generate app password**
+2. **Settings → Email & AI → Add IMAP / Yahoo**
+3. Enter the address and that password — the server (`imap.mail.yahoo.com`) is
+   filled in automatically, and the connection is tested before it is saved
+
+The same form covers iCloud, Outlook, Fastmail and any other IMAP host.
+App passwords are encrypted at rest with a key derived from `SECRET_KEY`, so
+**`SECRET_KEY` must be a fixed value in `.env`** — the app refuses to save a
+mailbox otherwise, rather than storing something that stops working after the
+next restart.
+
+### AI model
+
+1. Get a key from <https://platform.moonshot.ai/>
+2. Put it in `backend/.env` as `KIMI_API_KEY`, restart
+
+Keys are **not** interchangeable between the international (`.ai`) and China
+(`.cn`) platforms. For a `.cn` key also set
+`KIMI_BASE_URL=https://api.moonshot.cn/v1`.
+
+Cost is kept low by design: only messages already matched to an interview are
+sent, capped at `EMAIL_MAX_MESSAGES_PER_EVENT` (default 6) with each body
+truncated to `EMAIL_BODY_EXCERPT_CHARS` (default 4000).
+
+## Calendar setup (optional)
+
+**The app is fully usable without any of this.** Unconfigured providers are
+listed in Settings with the exact environment variables that are missing, and
+everything except calendar import keeps working.
+
+### Google Calendar
+
+1. <https://console.cloud.google.com/> → create or select a project
+2. **APIs & Services → Library** → enable **Google Calendar API**
+3. **OAuth consent screen** → External → add yourself as a test user
+4. **Credentials → Create credentials → OAuth client ID → Web application**
+5. Add this redirect URI exactly:
+   `http://localhost:8100/api/v1/calendar/oauth/google/callback`
+6. Put the client id/secret in `backend/.env` and restart
+
+### Microsoft Outlook / Microsoft 365
+
+1. <https://portal.azure.com/> → **Microsoft Entra ID → App registrations → New**
+2. Account types: *accounts in any organizational directory and personal
+   Microsoft accounts* (keeps `MICROSOFT_TENANT_ID=common` valid)
+3. Redirect URI, platform **Web**:
+   `http://localhost:8100/api/v1/calendar/oauth/microsoft/callback`
+4. **Certificates & secrets → New client secret** → copy the *Value*
+5. **API permissions → Microsoft Graph → Delegated**: `User.Read`,
+   `Calendars.ReadWrite`, `offline_access`
+6. Put the client id/secret in `backend/.env` and restart
+
+Then: **Settings → Calendars → Connect** next to a person.
+
+OAuth tokens are stored server-side only — no schema in `schemas/calendar.py`
+has a token field, so they are never serialised to the browser.
+
+### How syncing works
+
+- A background job syncs every connected calendar every `SYNC_INTERVAL_MINUTES`
+  (default 15). "Sync now" is available per connection in Settings.
+- The window defaults to 30 days back and 90 days forward, configurable in
+  Settings or per connection.
+- Imported events arrive **unclassified**. Nothing becomes an interview until a
+  human says so.
+- Events that look like interviews raise a suggestion with its reasons
+  ("Title contains 'interview'", "Invite came from a recruiting system"). You
+  can link it to an existing application, create a new one from it, or ignore.
+
+---
+
+## Configuration
+
+Everything lives in `backend/.env` (see `backend/.env.example` for the full,
+commented list).
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin321` | The single login |
+| `SECRET_KEY` | random per boot | Signs session tokens — set a fixed value to stay logged in across restarts |
+| `DATABASE_URL` | `sqlite:///./data/jobsearch.db` | Database location |
+| `AUTO_MIGRATE` | `true` | Apply migrations on startup |
+| `PORT` | `8100` | Backend port |
+| `CORS_ORIGINS` | `http://localhost:3100,…` | Comma-separated allowed origins |
+| `SYNC_WINDOW_PAST_DAYS` / `SYNC_WINDOW_FUTURE_DAYS` | `30` / `90` | Calendar import window |
+| `SYNC_INTERVAL_MINUTES` | `15` | Background sync cadence (`ENABLE_SCHEDULER=false` disables) |
+| `FOLLOWUP_AFTER_INTERVIEW_BUSINESS_DAYS` | `3` | Suggested follow-up delay |
+| `WAITING_FOR_FEEDBACK_THRESHOLD_DAYS` | `7` | When "waiting too long" is flagged |
+| `NO_ACTIVITY_GHOSTED_THRESHOLD_DAYS` | `21` | When "consider ghosted" is suggested |
+| `KIMI_API_KEY` | empty | Moonshot/Kimi key; empty disables AI cleanly |
+| `KIMI_BASE_URL` | `https://api.moonshot.ai/v1` | Use `.cn` for China-platform keys |
+| `KIMI_MODEL` | `kimi-k2-0711-preview` | Any Moonshot chat model |
+| `AI_AUTO_CREATE_CONFIDENCE` | `0.75` | Above this, records are created without asking |
+| `AI_ENABLED` | `true` | Master switch for all model calls |
+| `EMAIL_LOOKBACK_DAYS` / `EMAIL_LOOKAHEAD_DAYS` | `45` / `7` | Mail window around an event |
+| `EMAIL_MAX_MESSAGES_PER_EVENT` | `6` | Cap on messages sent to the model |
+
+The frontend needs only `NEXT_PUBLIC_API_URL` (in `frontend/.env.local`).
+
+---
+
+## Development
+
+```bash
+# Backend
+cd backend
+.venv/bin/python -m pytest tests/ -q          # 219 tests
+.venv/bin/ruff check app tests                # lint
+.venv/bin/alembic upgrade head                # migrate
+.venv/bin/alembic revision --autogenerate -m "..."   # new migration
+.venv/bin/python -m app.seed                  # reseed demo data
+
+# Frontend
+cd frontend
+npx tsc --noEmit                              # typecheck
+npx eslint .                                  # lint
+npm run build                                 # production build
+```
+
+### Tests
+
+`backend/tests/` covers the logic the product depends on being right:
+
+| File | Covers |
+| --- | --- |
+| `test_formulas.py` | pass rate, conversions, no-data vs. 0% |
+| `test_analytics.py` | the same metrics against real rows, cohort periods, declined offers |
+| `test_followup_status.py` | due / overdue / snooze derivation, timezone sensitivity |
+| `test_timeutils.py` | timezone conversion, DST, business days, overlap |
+| `test_interviews.py` | status/outcome split, stage ordering, multi-event loops, quick outcome |
+| `test_conflicts.py` | same-person conflicts, and that two people are never one |
+| `test_calendar_sync.py` | provider payload mapping, deduplication, provider-wins timing |
+| `test_detection.py` | interview detection scoring and extraction |
+| `test_api.py` | HTTP CRUD, auth, person filtering, search, error shapes |
+| `test_ai_enrichment.py` | email↔event matching, model-response parsing, auto-create, and that undo removes exactly what it created |
+
+---
+
+## Deployment
+
+The app is a modular monolith and deploys as two processes plus a file.
+
+1. Set real values for `SECRET_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`.
+2. Point `CORS_ORIGINS` and `FRONTEND_URL` at the real frontend origin, and
+   update both OAuth redirect URIs in `.env` *and* in the Google/Azure consoles.
+3. Backend: `uvicorn app.main:app --host 0.0.0.0 --port 8100` behind a TLS
+   terminator. Keep `AUTO_MIGRATE=true`, or run `alembic upgrade head` on deploy.
+4. Frontend: `npm run build && npm start`, with `NEXT_PUBLIC_API_URL` set to the
+   public API URL at build time.
+5. Back up `backend/data/jobsearch.db` — it is the entire dataset. SQLite runs
+   in WAL mode, so copy the `-wal` and `-shm` files too, or use
+   `sqlite3 jobsearch.db ".backup out.db"`.
+
+For more than a handful of concurrent writers, move `DATABASE_URL` to
+PostgreSQL — the models and migrations are portable, though the migration was
+generated against SQLite and should be regenerated.
+
+---
+
+## Deliberately not built
+
+Recruiter CRM, contact management, interviewer profiles, LinkedIn scraping, AI
+interview coaching, resume generation, email sending, role-based permissions,
+social features, gamification.
+
+Left possible but not implemented: AI extraction from job URLs, notifications,
+team permissions, multiple workspaces, a browser extension. The provider
+abstractions, workspace row and activity log exist so none of those require a
+rewrite.

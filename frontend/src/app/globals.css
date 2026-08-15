@@ -1,0 +1,190 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens.
+ *
+ * Two colour systems live here and they must never be conflated (spec §42):
+ *
+ *   1. SEMANTIC / STATUS colours (blue = scheduled, green = passed, ...)
+ *      carry meaning about state.
+ *   2. PERSON colours come from the database, one per person, and are applied
+ *      inline. They identify *who*, never *what state*.
+ *
+ * The look is a quiet modern SaaS dashboard: subtle borders, strong type
+ * hierarchy, information-dense, no gradients or glassmorphism (spec §41).
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --surface-hover: #f1f5f9;
+  --foreground: #0f172a;
+  --muted-foreground: #64748b;
+  --subtle-foreground: #94a3b8;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --ring: #2563eb;
+
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --primary-hover: #1d4ed8;
+
+  /* Status palette — semantic only. */
+  --status-neutral: #64748b;
+  --status-neutral-bg: #f1f5f9;
+  --status-info: #2563eb;
+  --status-info-bg: #eff6ff;
+  --status-warn: #b45309;
+  --status-warn-bg: #fffbeb;
+  --status-success: #15803d;
+  --status-success-bg: #f0fdf4;
+  --status-danger: #b91c1c;
+  --status-danger-bg: #fef2f2;
+  --status-offer: #7e22ce;
+  --status-offer-bg: #faf5ff;
+
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: #0b1120;
+  --surface: #111827;
+  --surface-muted: #1e293b;
+  --surface-hover: #1e293b;
+  --foreground: #e2e8f0;
+  --muted-foreground: #94a3b8;
+  --subtle-foreground: #64748b;
+  --border: #1e293b;
+  --border-strong: #334155;
+  --ring: #3b82f6;
+
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --primary-hover: #60a5fa;
+
+  --status-neutral: #94a3b8;
+  --status-neutral-bg: #1e293b;
+  --status-info: #60a5fa;
+  --status-info-bg: #172554;
+  --status-warn: #fbbf24;
+  --status-warn-bg: #2c1c04;
+  --status-success: #4ade80;
+  --status-success-bg: #052e16;
+  --status-danger: #f87171;
+  --status-danger-bg: #2c0b0b;
+  --status-offer: #c084fc;
+  --status-offer-bg: #2b0f45;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-hover: var(--surface-hover);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+
+  --color-status-neutral: var(--status-neutral);
+  --color-status-neutral-bg: var(--status-neutral-bg);
+  --color-status-info: var(--status-info);
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-warn: var(--status-warn);
+  --color-status-warn-bg: var(--status-warn-bg);
+  --color-status-success: var(--status-success);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-danger: var(--status-danger);
+  --color-status-danger-bg: var(--status-danger-bg);
+  --color-status-offer: var(--status-offer);
+  --color-status-offer-bg: var(--status-offer-bg);
+
+  --radius-DEFAULT: var(--radius);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Tabular numerals everywhere a figure is compared against another figure. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid var(--background);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* Respect reduced-motion; the UI has no animation that carries meaning. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--border-strong) 45%, transparent),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}

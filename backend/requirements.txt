@@ -1,0 +1,27 @@
+# Job Search Command Center — backend runtime dependencies
+
+fastapi>=0.115
+uvicorn[standard]>=0.32
+sqlalchemy>=2.0.36
+alembic>=1.14
+pydantic>=2.10
+pydantic-settings>=2.7
+email-validator>=2.2
+
+# auth
+PyJWT>=2.10
+bcrypt>=4.2
+
+# calendar providers (Google Calendar API + Microsoft Graph over plain REST)
+httpx>=0.28
+
+# background jobs (calendar sync, follow-up maintenance)
+APScheduler>=3.11
+
+# misc
+python-multipart>=0.0.20
+python-dateutil>=2.9
+tzdata>=2024.2
+
+# email + AI
+cryptography>=44.0
