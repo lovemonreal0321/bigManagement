@@ -48,7 +48,15 @@ are at <http://localhost:8100/docs>.
 cd frontend
 npm install
 cp .env.example .env.local
-npm run dev -- --port 3100
+npm run dev
+```
+
+The port (3100) is baked into the script, because the backend's `CORS_ORIGINS`
+expects it. On Windows, if `next dev` exits without printing an error, use the
+webpack fallback instead — Turbopack does not get on with every setup:
+
+```bash
+npm run dev:webpack
 ```
 
 Open <http://localhost:3100> and sign in:
@@ -343,7 +351,7 @@ commented list).
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin321` | The single login |
-| `SECRET_KEY` | random per boot | Signs session tokens — set a fixed value to stay logged in across restarts |
+| `SECRET_KEY` | generated once, stored in `data/.secret_key` | Signs session tokens; set explicitly only to share or rotate it |
 | `DATABASE_URL` | `sqlite:///./data/jobsearch.db` | Database location |
 | `AUTO_MIGRATE` | `true` | Apply migrations on startup |
 | `PORT` | `8100` | Backend port |
@@ -401,6 +409,32 @@ npm run build                                 # production build
 | `test_ai_enrichment.py` | email↔event matching, model-response parsing, auto-create, and that undo removes exactly what it created |
 
 ---
+
+## Troubleshooting
+
+**"Session expired" straight after signing in.** The signing key changed between
+issuing the token and checking it. Since the key is now generated once and kept
+in `backend/data/.secret_key`, this should only happen if that file is
+unwritable, or if you run multiple backend processes with different explicit
+`SECRET_KEY` values. Check the startup log — it says which key source it used.
+
+**The page loads but every action fails.** The frontend and `CORS_ORIGINS`
+disagree about the port. `npm run dev` serves 3100 and the backend allows 3100;
+if you change one, change the other in `backend/.env`.
+
+**`next dev` exits with no message (Windows).** Use `npm run dev:webpack`.
+Also check `node -v` — Next 16 needs 20.9 or newer.
+
+**API calls fail only on Windows.** Windows resolves `localhost` to IPv6
+(`::1`) first, so a backend bound to `--host 127.0.0.1` is unreachable. Bind
+`--host 0.0.0.0` instead.
+
+**Reaching it from another device.** Use the machine's LAN address, e.g.
+`http://192.168.1.20:3100`, and then all three of: run the backend with
+`--host 0.0.0.0`, point `NEXT_PUBLIC_API_URL` at the same LAN address, and add
+that origin to `CORS_ORIGINS`. OAuth still has to be done from the host
+machine's browser at `localhost`, because Google rejects private IPs as
+redirect URIs.
 
 ## Deployment
 

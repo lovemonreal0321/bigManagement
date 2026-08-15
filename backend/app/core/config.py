@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 import secrets
 from functools import lru_cache
 from pathlib import Path
@@ -13,9 +15,23 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = BACKEND_DIR.parent
 
 
+def _env_file() -> Path | None:
+    """Which dotenv file to read, if any.
+
+    Overridable via `JSCC_ENV_FILE` so the test suite can opt out entirely.
+    Without that, tests would inherit whatever the developer happens to have in
+    `.env` — real OAuth credentials, for instance — and assertions about
+    unconfigured providers would pass or fail depending on the machine.
+    """
+    override = os.getenv("JSCC_ENV_FILE")
+    if override is None:
+        return BACKEND_DIR / ".env"
+    return Path(override) if override.strip() else None
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(BACKEND_DIR / ".env"),
+        env_file=_env_file(),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -127,16 +143,23 @@ class Settings(BaseSettings):
 
     @property
     def secret_key_is_ephemeral(self) -> bool:
-        """True when SECRET_KEY was generated at boot rather than configured.
+        """True when the signing key cannot survive a restart.
+
+        False when SECRET_KEY was configured explicitly, and also false when a
+        generated key was successfully persisted to disk (see
+        `_load_or_create_secret_key`). Only an unwritable data directory leaves
+        it genuinely ephemeral.
 
         Stored IMAP passwords are encrypted with a key derived from it, so an
         ephemeral value means they cannot survive a restart.
 
-        `model_fields_set` is the right test: it holds the fields that were
-        actually supplied by the environment or `.env`, whereas `os.getenv`
-        would miss anything read from the dotenv file.
+        `model_fields_set` is the right test for "was it configured": it holds
+        the fields actually supplied by the environment or `.env`, whereas
+        `os.getenv` would miss anything read from the dotenv file.
         """
-        return "secret_key" not in self.model_fields_set
+        if "secret_key" in self.model_fields_set:
+            return False
+        return not _secret_key_persisted
 
     @property
     def google_configured(self) -> bool:
@@ -153,12 +176,61 @@ class Settings(BaseSettings):
         return None
 
 
+#: File holding the auto-generated signing key, so it survives restarts.
+SECRET_KEY_FILE_NAME = ".secret_key"
+
+#: Set by `get_settings` when a generated key was written to (or read from)
+#: disk. Module-level rather than a field so it cannot be set from the
+#: environment — it is an observation, not configuration.
+_secret_key_persisted = False
+
+
+def _load_or_create_secret_key(data_dir: Path) -> tuple[str, bool]:
+    """Return a stable signing key, generating and storing one if needed.
+
+    Without this, an unset SECRET_KEY means a fresh random key on every process
+    start — so every restart, and every extra worker, silently invalidates
+    tokens that were just issued, and the user is told their session expired
+    seconds after signing in. Persisting the generated key makes the plain
+    "just run it" path behave correctly with no configuration.
+
+    Returns `(key, persisted)`. `persisted` is False only when the directory
+    cannot be written, in which case the key really is per-process.
+    """
+    path = data_dir / SECRET_KEY_FILE_NAME
+    try:
+        if path.exists():
+            existing = path.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing, True
+
+        generated = secrets.token_urlsafe(48)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(generated, encoding="utf-8")
+        # Best effort; effectively a no-op on Windows.
+        with contextlib.suppress(OSError):
+            path.chmod(0o600)
+        return generated, True
+    except OSError:
+        # Read-only or otherwise unwritable location: fall back to a
+        # per-process key and let `secret_key_is_ephemeral` report it.
+        return secrets.token_urlsafe(48), False
+
+
 @lru_cache
 def get_settings() -> Settings:
+    global _secret_key_persisted
+
     settings = Settings()
     path = settings.sqlite_path
-    if path is not None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    data_dir = path.parent if path is not None else BACKEND_DIR / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    if "secret_key" not in settings.model_fields_set:
+        key, persisted = _load_or_create_secret_key(data_dir)
+        settings.secret_key = key
+        _secret_key_persisted = persisted
+
     return settings
 
 

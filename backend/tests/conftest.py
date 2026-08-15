@@ -15,6 +15,9 @@ from pathlib import Path
 import pytest
 
 _TMP_DIR = Path(tempfile.mkdtemp(prefix="jobsearch-tests-"))
+# Ignore the developer's .env entirely. Otherwise real OAuth keys or a custom
+# model would leak into the suite and tests would pass or fail per machine.
+os.environ["JSCC_ENV_FILE"] = ""
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DIR / 'test.db'}"
 os.environ["ENABLE_SCHEDULER"] = "false"
 os.environ["AUTO_MIGRATE"] = "false"
