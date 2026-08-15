@@ -14,10 +14,12 @@ from app.domains.email.providers.base import (
 )
 from app.domains.email.providers.gmail import GmailAdapter
 from app.domains.email.providers.imap import ImapAdapter
+from app.domains.email.providers.microsoft import OutlookAdapter
 from app.enums import EmailProvider
 
 _ADAPTERS: dict[str, EmailProviderAdapter] = {
     EmailProvider.GMAIL.value: GmailAdapter(),
+    EmailProvider.MICROSOFT.value: OutlookAdapter(),
     EmailProvider.IMAP.value: ImapAdapter(),
 }
 

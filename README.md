@@ -12,7 +12,7 @@ and analytics answer **how the search is actually going**.
 - **Backend** — FastAPI + SQLAlchemy 2 + Alembic
 - **Database** — SQLite (a single file, no server to run)
 - **Calendars** — Google Calendar and Microsoft Graph, behind one provider-agnostic interface
-- **Email** — Gmail (OAuth) and Yahoo/iCloud/Outlook (IMAP), read-only
+- **Email** — Gmail and Outlook over OAuth, plus generic IMAP for Yahoo/iCloud, read-only
 - **AI** — Moonshot / Kimi, used only to read the emails behind an interview
 
 ---
@@ -267,17 +267,42 @@ Reuses the Google project from the calendar setup below:
 Scope requested is `gmail.readonly` — the app never sends, deletes or modifies
 mail.
 
+### Outlook / Microsoft 365 — OAuth
+
+Reuses the Azure app registration from the calendar setup:
+
+1. **API permissions → Microsoft Graph → Delegated** → add **`Mail.Read`**
+   alongside `Calendars.ReadWrite`, then grant consent
+2. Add a second redirect URI to the same app:
+   `http://localhost:8100/api/v1/email/oauth/microsoft/callback`
+3. **Settings → Email & AI → Connect Outlook** next to a person
+
+This uses Microsoft Graph rather than IMAP on purpose. Exchange Online disabled
+basic authentication, so an app password over IMAP fails outright on work and
+school accounts. Graph is OAuth throughout and behaves the same for personal
+`outlook.com` and managed M365 mailboxes.
+
 ### Yahoo — IMAP with an app password
 
-Yahoo closed its OAuth/API partner programme to new third-party apps, so
-"Sign in with Yahoo" is not available to this app. Use an app password:
+Yahoo grants mail OAuth only to **pre-approved partner apps** — which is why
+Apple Mail and Thunderbird show a "Yahoo" preset and a self-hosted app cannot.
+There is no page where you can register for mail scopes, so an app password is
+the only route:
 
 1. Yahoo → **Account Security → Generate app password**
 2. **Settings → Email & AI → Add IMAP / Yahoo**
 3. Enter the address and that password — the server (`imap.mail.yahoo.com`) is
    filled in automatically, and the connection is tested before it is saved
 
-The same form covers iCloud, Outlook, Fastmail and any other IMAP host.
+The same form covers iCloud, Fastmail and any other IMAP host. For Microsoft
+accounts prefer **Connect Outlook** above — IMAP will not authenticate against
+a work or school M365 mailbox.
+
+If you cannot generate a Yahoo app password at all (the option stays hidden
+unless 2-step verification is on), the practical alternatives are to forward
+Yahoo mail into a Gmail or Outlook account and connect that, or to run
+calendar-only — email is enrichment, not the engine, and extractions simply
+arrive with lower confidence for review.
 App passwords are encrypted at rest with a key derived from `SECRET_KEY`, so
 **`SECRET_KEY` must be a fixed value in `.env`** — the app refuses to save a
 mailbox otherwise, rather than storing something that stops working after the

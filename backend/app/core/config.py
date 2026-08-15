@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     gmail_redirect_uri: str = (
         "http://localhost:8100/api/v1/email/oauth/google/callback"
     )
+    #: Outlook mail reuses the Microsoft OAuth client; only the scope differs.
+    outlook_mail_redirect_uri: str = (
+        "http://localhost:8100/api/v1/email/oauth/microsoft/callback"
+    )
     #: How far around a calendar event to look for related mail.
     email_lookback_days: int = 45
     email_lookahead_days: int = 7

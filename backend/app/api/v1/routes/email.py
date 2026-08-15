@@ -111,6 +111,43 @@ def start_gmail_oauth(
     )
 
 
+@router.post("/oauth/microsoft/start", response_model=OAuthStartOut)
+def start_outlook_oauth(
+    person_id: Annotated[str, Query()], db: DbSession, workspace: CurrentWorkspace
+) -> OAuthStartOut:
+    return OAuthStartOut(
+        authorization_url=email_service.outlook_authorization_url(
+            db, workspace, person_id
+        )
+    )
+
+
+@router.get("/oauth/microsoft/callback", include_in_schema=False)
+def outlook_oauth_callback(
+    state: str | None = None, code: str | None = None, error: str | None = None
+) -> RedirectResponse:
+    """Microsoft redirect target for the Mail.Read scope."""
+    redirect_base = f"{settings.frontend_url}/settings"
+    if error:
+        return RedirectResponse(f"{redirect_base}?email_error={error}", status_code=302)
+    if not state or not code:
+        return RedirectResponse(
+            f"{redirect_base}?email_error=missing_code", status_code=302
+        )
+
+    db = next(get_db())
+    try:
+        workspace = get_workspace(db)
+        email_service.complete_outlook_oauth(db, workspace, state=state, code=code)
+        return RedirectResponse(
+            f"{redirect_base}?email_connected=outlook", status_code=302
+        )
+    except AppError as exc:
+        return RedirectResponse(f"{redirect_base}?email_error={exc.code}", status_code=302)
+    finally:
+        db.close()
+
+
 @router.get("/oauth/google/callback", include_in_schema=False)
 def gmail_oauth_callback(
     state: str | None = None, code: str | None = None, error: str | None = None

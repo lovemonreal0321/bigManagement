@@ -46,7 +46,7 @@ import {
   useEmailProviders,
   useImapSuggestion,
   usePeople,
-  useStartGmailOAuth,
+  useStartEmailOAuth,
   useVerifyEmailAccount,
 } from "@/lib/queries";
 
@@ -56,21 +56,24 @@ export function EmailSettings() {
   const { data: people } = usePeople();
   const { data: aiStatus } = useAiStatus();
 
-  const startGmail = useStartGmailOAuth();
+  const startOAuth = useStartEmailOAuth();
   const verify = useVerifyEmailAccount();
   const remove = useDeleteEmailAccount();
 
   const [imapOpen, setImapOpen] = React.useState(false);
   const gmailProvider = providers?.find((p) => p.key === "gmail");
+  const outlookProvider = providers?.find((p) => p.key === "microsoft");
   const imapProvider = providers?.find((p) => p.key === "imap");
 
-  async function connectGmail(personId: string) {
+  async function connect(provider: "gmail" | "microsoft", personId: string) {
     try {
-      const result = await startGmail.mutateAsync(personId);
+      const result = await startOAuth.mutateAsync({ provider, personId });
       window.location.assign(result.authorization_url);
     } catch (error) {
       toast.error(
-        error instanceof ApiError ? error.message : "Could not start Gmail sign-in.",
+        error instanceof ApiError
+          ? error.message
+          : "Could not start the sign-in.",
       );
     }
   }
@@ -264,16 +267,21 @@ export function EmailSettings() {
         )}
       </Card>
 
-      {/* Connect Gmail */}
+      {/* Connect a mailbox over OAuth */}
       <Card>
         <CardHeader
-          title="Connect Gmail"
-          description="Uses the same Google project as Calendar, with read-only mail access."
+          title="Connect with OAuth"
+          description="Gmail and Outlook reuse the Google and Microsoft apps already set up for Calendar, with read-only mail access."
         />
         <CardBody className="space-y-2">
           {gmailProvider && !gmailProvider.is_configured ? (
             <Alert tone="warn" title="Google is not configured yet">
               {gmailProvider.setup_hint}
+            </Alert>
+          ) : null}
+          {outlookProvider && !outlookProvider.is_configured ? (
+            <Alert tone="warn" title="Microsoft is not configured yet">
+              {outlookProvider.setup_hint}
             </Alert>
           ) : null}
           {(people ?? []).map((person) => (
@@ -293,9 +301,22 @@ export function EmailSettings() {
                 size="xs"
                 variant="secondary"
                 disabled={!gmailProvider?.is_configured}
-                onClick={() => connectGmail(person.id)}
+                onClick={() => connect("gmail", person.id)}
               >
                 Connect Gmail
+              </Button>
+              <Button
+                size="xs"
+                variant="secondary"
+                disabled={!outlookProvider?.is_configured}
+                title={
+                  outlookProvider?.is_configured
+                    ? undefined
+                    : (outlookProvider?.setup_hint ?? undefined)
+                }
+                onClick={() => connect("microsoft", person.id)}
+              >
+                Connect Outlook
               </Button>
             </div>
           ))}

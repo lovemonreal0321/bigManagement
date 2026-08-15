@@ -358,6 +358,7 @@ class EmailProvider(StrEnum):
     is the only route Yahoo still offers third-party apps."""
 
     GMAIL = "gmail"
+    MICROSOFT = "microsoft"
     IMAP = "imap"
 
 

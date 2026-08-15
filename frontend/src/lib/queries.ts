@@ -747,11 +747,18 @@ export function useConnectImap() {
   });
 }
 
-export function useStartGmailOAuth() {
+/** Start the mail OAuth flow for Gmail or Outlook. */
+export function useStartEmailOAuth() {
   return useMutation({
-    mutationFn: (personId: string) =>
+    mutationFn: ({
+      provider,
+      personId,
+    }: {
+      provider: "gmail" | "microsoft";
+      personId: string;
+    }) =>
       api.post<{ authorization_url: string }>(
-        "/email/oauth/google/start",
+        `/email/oauth/${provider === "gmail" ? "google" : "microsoft"}/start`,
         undefined,
         { person_id: personId },
       ),

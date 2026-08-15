@@ -16,6 +16,7 @@ from app.domains.calendar.providers.http import request
 from app.domains.email.providers import get_email_adapter
 from app.domains.email.providers.gmail import GMAIL_SCOPES, TOKEN_URL
 from app.domains.email.providers.imap import KNOWN_HOSTS, suggest_host
+from app.domains.email.providers.microsoft import OUTLOOK_MAIL_SCOPES
 from app.enums import ConnectionStatus, EmailProvider
 from app.models import EmailAccount, Person, Workspace
 from app.schemas.email import (
@@ -36,6 +37,12 @@ def list_providers() -> list[EmailProviderInfo]:
     if not settings.google_client_secret:
         missing.append("GOOGLE_CLIENT_SECRET")
 
+    microsoft_missing = []
+    if not settings.microsoft_client_id:
+        microsoft_missing.append("MICROSOFT_CLIENT_ID")
+    if not settings.microsoft_client_secret:
+        microsoft_missing.append("MICROSOFT_CLIENT_SECRET")
+
     return [
         EmailProviderInfo(
             key=EmailProvider.GMAIL.value,
@@ -53,15 +60,33 @@ def list_providers() -> list[EmailProviderInfo]:
             ),
         ),
         EmailProviderInfo(
+            key=EmailProvider.MICROSOFT.value,
+            display_name="Outlook",
+            is_configured=settings.microsoft_configured,
+            requires_app_password=False,
+            missing_settings=microsoft_missing,
+            setup_hint=(
+                None
+                if settings.microsoft_configured
+                else (
+                    f"Set {', '.join(microsoft_missing)} in backend/.env and add "
+                    "the Mail.Read delegated permission to the same Azure app "
+                    "registration used for Calendar."
+                )
+            ),
+        ),
+        EmailProviderInfo(
             key=EmailProvider.IMAP.value,
             display_name="Yahoo / IMAP",
             # IMAP needs nothing server-side; the credentials are per-account.
             is_configured=True,
             requires_app_password=True,
             setup_hint=(
-                "Yahoo no longer offers OAuth to third-party apps, so this uses "
-                "IMAP with an app-specific password: Yahoo Account Security → "
-                "Generate app password."
+                "Yahoo grants mail OAuth only to pre-approved partner apps, so "
+                "it connects over IMAP with an app-specific password (Yahoo "
+                "Account Security → Generate app password). Note that "
+                "Microsoft 365 work accounts cannot use IMAP at all — connect "
+                "those with Outlook above."
             ),
         ),
     ]
@@ -336,6 +361,114 @@ def complete_gmail_oauth(
         db.add(account)
 
     account.display_name = profile.get("name") or person.display_name
+    account.access_token = tokens["access_token"]
+    if tokens.get("refresh_token"):
+        account.refresh_token = tokens["refresh_token"]
+    expires_in = tokens.get("expires_in")
+    account.token_expires_at = (
+        utcnow() + timedelta(seconds=int(expires_in)) if expires_in else None
+    )
+    account.scope = tokens.get("scope")
+    account.status = ConnectionStatus.CONNECTED.value
+    account.last_error = None
+    db.commit()
+    return account
+
+
+# --------------------------------------------------------------------------
+# Outlook OAuth
+# --------------------------------------------------------------------------
+
+
+def outlook_authorization_url(
+    db: Session, workspace: Workspace, person_id: str
+) -> str:
+    from urllib.parse import urlencode
+
+    from app.domains.calendar.providers.microsoft import _authority
+
+    person = db.get(Person, person_id)
+    if person is None or person.workspace_id != workspace.id:
+        raise ValidationError("Unknown person.", code="person_not_found")
+    if not settings.microsoft_configured:
+        from app.core.errors import ProviderNotConfiguredError
+
+        raise ProviderNotConfiguredError(
+            "Outlook mail needs MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET "
+            "in backend/.env, and the Mail.Read delegated permission on the "
+            "same Azure app registration used for Calendar.",
+            details={"missing": ["MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"]},
+        )
+
+    state = create_state_token({"person_id": person.id, "kind": "outlook"})
+    params = {
+        "client_id": settings.microsoft_client_id,
+        "response_type": "code",
+        "redirect_uri": settings.outlook_mail_redirect_uri,
+        "response_mode": "query",
+        "scope": " ".join(OUTLOOK_MAIL_SCOPES),
+        "state": state,
+    }
+    return f"{_authority()}/oauth2/v2.0/authorize?{urlencode(params)}"
+
+
+def complete_outlook_oauth(
+    db: Session, workspace: Workspace, *, state: str, code: str
+) -> EmailAccount:
+    from datetime import timedelta
+
+    from app.domains.calendar.providers.microsoft import GRAPH, _authority
+
+    claims = decode_state_token(state)
+    if not claims or claims.get("kind") != "outlook":
+        raise ValidationError(
+            "That sign-in link expired. Please start the connection again.",
+            code="invalid_oauth_state",
+        )
+
+    person = db.get(Person, claims.get("person_id", ""))
+    if person is None or person.workspace_id != workspace.id:
+        raise ValidationError("Unknown person.", code="person_not_found")
+
+    tokens = request(
+        "POST",
+        f"{_authority()}/oauth2/v2.0/token",
+        data={
+            "client_id": settings.microsoft_client_id,
+            "client_secret": settings.microsoft_client_secret,
+            "code": code,
+            "redirect_uri": settings.outlook_mail_redirect_uri,
+            "grant_type": "authorization_code",
+            "scope": " ".join(OUTLOOK_MAIL_SCOPES),
+        },
+        provider="outlook",
+    )
+    profile = request(
+        "GET", f"{GRAPH}/me", access_token=tokens["access_token"], provider="outlook"
+    )
+    address = (profile.get("mail") or profile.get("userPrincipalName") or "").lower()
+    if not address:
+        raise ValidationError(
+            "Microsoft did not return an email address for that account.",
+            code="outlook_no_address",
+        )
+
+    account = db.scalars(
+        select(EmailAccount).where(
+            EmailAccount.person_id == person.id,
+            EmailAccount.provider == EmailProvider.MICROSOFT.value,
+            EmailAccount.address == address,
+        )
+    ).first()
+    if account is None:
+        account = EmailAccount(
+            person_id=person.id,
+            provider=EmailProvider.MICROSOFT.value,
+            address=address,
+        )
+        db.add(account)
+
+    account.display_name = profile.get("displayName") or person.display_name
     account.access_token = tokens["access_token"]
     if tokens.get("refresh_token"):
         account.refresh_token = tokens["refresh_token"]

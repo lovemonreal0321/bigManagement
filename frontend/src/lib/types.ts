@@ -752,7 +752,7 @@ export interface AuthUser {
 // Email + AI
 // --------------------------------------------------------------------------
 
-export type EmailProviderKey = "gmail" | "imap";
+export type EmailProviderKey = "gmail" | "microsoft" | "imap";
 
 export interface EmailAccount {
   id: string;
