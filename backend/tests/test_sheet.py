@@ -146,9 +146,46 @@ class TestDayGrouping:
         assert counts == {"2026-08-19": 3, "2026-08-18": 1}
         assert all(len(day["rows"]) == day["count"] for day in sheet["days"])
 
-    def test_newest_day_first(self, client: TestClient, cast: dict) -> None:
+    def test_oldest_day_first_so_the_newest_sits_at_the_bottom(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """A spreadsheet is appended to. The newest row belongs at the bottom,
+        next to the blank row being typed into, not at the top away from it."""
         sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
-        assert [day["date"] for day in sheet["days"]] == ["2026-08-19", "2026-08-18"]
+        assert [day["date"] for day in sheet["days"]] == ["2026-08-18", "2026-08-19"]
+
+    def test_rows_within_a_day_are_in_insertion_order(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """Editing a row must not make it jump within its day."""
+        sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
+        day = next(d for d in sheet["days"] if d["date"] == "2026-08-19")
+        assert [r["company_name"] for r in day["rows"]] == [
+            "Amazon",
+            "Stripe",
+            "NVIDIA",
+        ]
+
+        client.patch(
+            f"{API}/applications/{day['rows'][0]['id']}",
+            json={"company_name": "Amazon Web Services"},
+            headers=cast["headers"],
+        )
+        after = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
+        day_after = next(d for d in after["days"] if d["date"] == "2026-08-19")
+        assert [r["company_name"] for r in day_after["rows"]] == [
+            "Amazon Web Services",
+            "Stripe",
+            "NVIDIA",
+        ]
+
+    def test_a_newly_added_row_lands_at_the_very_bottom(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        _application(client, cast["headers"], cast["john"]["id"], "Newest Co")
+        sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
+        last_day = sheet["days"][-1]
+        assert last_day["rows"][-1]["company_name"] == "Newest Co"
 
     def test_the_day_label_is_rendered_server_side(
         self, client: TestClient, cast: dict
@@ -156,14 +193,15 @@ class TestDayGrouping:
         """One place decides the wording, and it must not use `%-d`, which
         raises on Windows."""
         sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
-        assert sheet["days"][0]["label"] == "Wed 19 Aug 2026"
-        assert sheet["days"][1]["label"] == "Tue 18 Aug 2026"
+        assert sheet["days"][0]["label"] == "Tue 18 Aug 2026"
+        assert sheet["days"][1]["label"] == "Wed 19 Aug 2026"
 
-    def test_undated_rows_get_their_own_bucket_at_the_bottom(
+    def test_undated_rows_get_their_own_bucket_at_the_top(
         self, client: TestClient, cast: dict
     ) -> None:
         """A saved-but-not-applied row would otherwise vanish from a
-        date-grouped view."""
+        date-grouped view. It sits above the dated run so the bottom of the
+        sheet stays "now"."""
         response = client.post(
             f"{API}/applications",
             json={
@@ -177,10 +215,12 @@ class TestDayGrouping:
         assert response.status_code == 201, response.text
 
         sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
-        last = sheet["days"][-1]
-        assert last["date"] is None
-        assert last["label"] == "No date recorded"
-        assert [row["company_name"] for row in last["rows"]] == ["Undated Co"]
+        first = sheet["days"][0]
+        assert first["date"] is None
+        assert first["label"] == "No date recorded"
+        assert [row["company_name"] for row in first["rows"]] == ["Undated Co"]
+        # …and the dated run still ends with the newest day.
+        assert sheet["days"][-1]["date"] == "2026-08-19"
 
     def test_busiest_day_is_reported(self, client: TestClient, cast: dict) -> None:
         sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])

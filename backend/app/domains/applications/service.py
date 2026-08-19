@@ -502,13 +502,15 @@ def build_sheet(
         filters,
         utcnow(),
     )
-    # Newest day first; within a day, most recently touched first, so a row
-    # just added or edited surfaces at the top of its group.
+    # Oldest first, like a spreadsheet you append to: the newest row ends up at
+    # the bottom, next to the blank row you type into, instead of jumping to the
+    # top and away from the cursor. `created_at` breaks ties within a day so the
+    # order is insertion order and does not reshuffle when a row is edited.
     rows = list(
         db.scalars(
             stmt.order_by(
-                Application.applied_date.desc().nullslast(),
-                Application.last_activity_at.desc(),
+                Application.applied_date.asc(),
+                Application.created_at.asc(),
             )
         ).unique()
     )
@@ -528,12 +530,12 @@ def build_sheet(
             )
         )
 
-    # Newest day first, with the undated bucket pinned to the bottom rather
-    # than sorting as if it were the oldest.
+    # Oldest day at the top, newest at the bottom. Undated rows — saved but not
+    # yet applied — go above the dated run rather than below it, so the bottom
+    # of the sheet stays "now": the newest day, then the blank add row.
     ordered = sorted(
         grouped.items(),
         key=lambda kv: (kv[0] is not None, kv[0] or date.min),
-        reverse=True,
     )
     days = [
         SheetDay(date=day, label=_day_label(day), count=len(items), rows=items)

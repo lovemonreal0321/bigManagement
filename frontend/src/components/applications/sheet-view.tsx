@@ -3,15 +3,20 @@
 /**
  * The spreadsheet view of applications.
  *
- * One tab per person, rows grouped under the day they were applied with a
- * count on the band, and three editable columns: date, company, job link.
- * Typing into the blank row at the bottom creates an application.
+ * Rows grouped under the day they were applied, with a count on the band, and
+ * three editable columns: date, company, job link. Oldest day at the top, so
+ * the newest row sits at the bottom next to the blank row you type into.
+ *
+ * The person tab bar lives in the page, shared with the list and pipeline
+ * views (see `components/shared/person-tabs.tsx`).
  *
  * Deliberately narrow. Everything richer — status, interviews, follow-ups,
  * notes — lives on the detail page, one click away from the row.
  */
 
 import {
+  Archive,
+  ArchiveRestore,
   ArrowUpRight,
   Loader2,
   Plus,
@@ -23,14 +28,17 @@ import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { PersonAvatar } from "@/components/shared/badges";
 import { ReadOnlyNote } from "@/components/shared/read-only";
 import { Tooltip } from "@/components/ui/overlays";
 import { EmptyState, Input, Skeleton } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { APPLICATION_STATUS_LABELS } from "@/lib/format";
-import { useCreateApplication, useUpdateApplication } from "@/lib/queries";
+import {
+  useArchiveApplication,
+  useCreateApplication,
+  useUpdateApplication,
+} from "@/lib/queries";
 import type { ApplicationSheet, SheetRow } from "@/lib/types";
 
 /** The three columns the sheet shows, in order. */
@@ -77,19 +85,22 @@ export function SheetView({
   sheet,
   loading,
   personId,
-  onPersonChange,
   search,
   onSearchChange,
+  includeArchived,
+  onIncludeArchivedChange,
 }: {
   sheet: ApplicationSheet | undefined;
   loading?: boolean;
   personId: string | null;
-  onPersonChange: (id: string) => void;
   search: string;
   onSearchChange: (value: string) => void;
+  includeArchived: boolean;
+  onIncludeArchivedChange: (value: boolean) => void;
 }) {
   const createApplication = useCreateApplication();
   const updateApplication = useUpdateApplication();
+  const archiveApplication = useArchiveApplication();
 
   const [editing, setEditing] = React.useState<Cell | null>(null);
   const [draft, setDraft] = React.useState("");
@@ -99,7 +110,10 @@ export function SheetView({
     job_url: "",
   });
   const inputRef = React.useRef<HTMLInputElement | null>(null);
-  const saving = createApplication.isPending || updateApplication.isPending;
+  const saving =
+    createApplication.isPending ||
+    updateApplication.isPending ||
+    archiveApplication.isPending;
 
   const canEdit = sheet?.can_edit ?? false;
 
@@ -223,6 +237,26 @@ export function SheetView({
     setDraft("");
   }
 
+  async function toggleArchive(row: SheetRow) {
+    try {
+      await archiveApplication.mutateAsync({
+        id: row.id,
+        restore: row.is_archived,
+      });
+      toast.success(
+        row.is_archived
+          ? `${row.company_name} restored`
+          : `${row.company_name} archived`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof ApiError
+          ? error.message
+          : "Could not archive that application.",
+      );
+    }
+  }
+
   async function handleKeyDown(
     event: React.KeyboardEvent<HTMLInputElement>,
     row: SheetRow | null,
@@ -338,6 +372,16 @@ export function SheetView({
           )}
         </p>
 
+        <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(event) => onIncludeArchivedChange(event.target.checked)}
+            className="size-3.5 accent-[var(--primary)]"
+          />
+          Show archived
+        </label>
+
         {saving ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" />
@@ -348,7 +392,7 @@ export function SheetView({
       </div>
 
       {/* Grid */}
-      <div className="overflow-x-auto rounded-t-lg border border-border bg-surface">
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-surface-muted/60">
@@ -372,9 +416,9 @@ export function SheetView({
               ))}
               <th
                 scope="col"
-                className="w-12 border-b border-border px-1 py-1.5 text-[11px] font-medium text-subtle-foreground"
+                className="w-20 border-b border-border px-1 py-1.5 text-[11px] font-medium text-subtle-foreground"
               >
-                <span className="sr-only">Open</span>
+                <span className="sr-only">Row actions</span>
               </th>
             </tr>
           </thead>
@@ -457,16 +501,40 @@ export function SheetView({
                         </td>
                       ))}
 
-                      <td className="border-b border-border px-1 text-center align-middle">
-                        <Tooltip content="Open the full application">
-                          <Link
-                            href={`/applications/${row.id}`}
-                            className="inline-flex rounded p-1 text-subtle-foreground opacity-0 transition-opacity hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                            aria-label={`Open ${row.company_name}`}
-                          >
-                            <SquareArrowOutUpRight className="size-3.5" />
-                          </Link>
-                        </Tooltip>
+                      <td className="border-b border-border px-1 align-middle">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <Tooltip content="Open the full application">
+                            <Link
+                              href={`/applications/${row.id}`}
+                              className="inline-flex rounded p-1 text-subtle-foreground opacity-0 transition-opacity hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                              aria-label={`Open ${row.company_name}`}
+                            >
+                              <SquareArrowOutUpRight className="size-3.5" />
+                            </Link>
+                          </Tooltip>
+                          {canEdit ? (
+                            <Tooltip
+                              content={
+                                row.is_archived
+                                  ? "Restore this application"
+                                  : "Archive this application"
+                              }
+                            >
+                              <button
+                                type="button"
+                                onClick={() => void toggleArchive(row)}
+                                aria-label={`${row.is_archived ? "Restore" : "Archive"} ${row.company_name}`}
+                                className="inline-flex rounded p-1 text-subtle-foreground opacity-0 transition-opacity hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                              >
+                                {row.is_archived ? (
+                                  <ArchiveRestore className="size-3.5" />
+                                ) : (
+                                  <Archive className="size-3.5" />
+                                )}
+                              </button>
+                            </Tooltip>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                 ))}
@@ -522,40 +590,6 @@ export function SheetView({
         </table>
       </div>
 
-      {/* Sheet tabs, along the bottom like a spreadsheet */}
-      <div className="flex items-stretch gap-1 overflow-x-auto rounded-b-lg border border-t-0 border-border bg-surface-muted/50 px-1.5 py-1">
-        {sheet.tabs.map((tab) => {
-          const active = tab.person_id === (personId ?? sheet.person_id);
-          return (
-            <button
-              key={tab.person_id}
-              type="button"
-              onClick={() => onPersonChange(tab.person_id)}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 rounded-b-md border-t-2 px-2.5 py-1 text-xs font-medium transition-colors",
-                active
-                  ? "bg-surface text-foreground shadow-sm"
-                  : "border-t-transparent text-muted-foreground hover:bg-surface/60 hover:text-foreground",
-              )}
-              style={active ? { borderTopColor: tab.color } : undefined}
-            >
-              <PersonAvatar
-                color={tab.color}
-                initials={tab.initials}
-                size="sm"
-              />
-              {tab.name}
-              <span className="tabular-nums text-subtle-foreground">
-                {tab.total}
-              </span>
-              {!tab.can_edit ? (
-                <span className="sr-only">(view only)</span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 }

@@ -16,6 +16,7 @@ import * as React from "react";
 import { PipelineBoard } from "@/components/applications/pipeline-board";
 import { QuickAddDialog } from "@/components/applications/quick-add";
 import { SheetView } from "@/components/applications/sheet-view";
+import { PersonTabs } from "@/components/shared/person-tabs";
 import {
   PersonAvatar,
   PriorityBadge,
@@ -63,24 +64,32 @@ import {
 
 type ViewMode = "list" | "pipeline" | "sheet";
 
-const VIEW_MODES: ViewMode[] = ["list", "pipeline", "sheet"];
+const VIEW_MODES: ViewMode[] = ["sheet", "list", "pipeline"];
+
+/** Views where "everyone" is meaningful. A sheet tab is one person. */
+const SUPPORTS_ALL: ViewMode[] = ["list", "pipeline"];
 
 export default function ApplicationsPage() {
   const searchParams = useSearchParams();
-  const { queryIds } = usePersonFilter();
+  const { queryIds, people } = usePersonFilter();
   const { data: filterOptions } = useFilterOptions();
   const { data: types } = useInterviewTypes();
 
   const [view, setView] = React.useState<ViewMode>(() => {
     const requested = searchParams.get("view") as ViewMode | null;
-    return requested && VIEW_MODES.includes(requested) ? requested : "list";
+    return requested && VIEW_MODES.includes(requested) ? requested : "sheet";
   });
 
-  // The sheet keeps its own person and search: its tabs are the person picker,
-  // and its search box narrows one sheet rather than the whole list.
-  const [sheetPerson, setSheetPerson] = React.useState<string | null>(null);
+  // One person selection, shared by all three views, so switching view keeps
+  // whoever you were looking at. `null` is "everyone".
+  const [activePerson, setActivePerson] = React.useState<
+    string | null | undefined
+  >(undefined);
+  // The sheet searches one person's rows, so it keeps its own box separate
+  // from the list's filter bar.
   const [sheetSearch, setSheetSearch] = React.useState("");
   const [sheetDebounced, setSheetDebounced] = React.useState("");
+  const [sheetArchived, setSheetArchived] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [debounced, setDebounced] = React.useState("");
   const [statuses, setStatuses] = React.useState<string[]>(() => {
@@ -123,15 +132,22 @@ export default function ApplicationsPage() {
     limit: 100,
   };
 
-  const list = useApplications(queryIds, filters);
-  const pipeline = usePipeline(queryIds, debounced);
+  // `undefined` means the user has not picked yet, so open on the first
+  // person — the views are meant to be divided by person. `null` is an
+  // explicit "everyone", which only the list and pipeline offer.
+  const resolvedPerson =
+    activePerson === undefined ? (people[0]?.id ?? null) : activePerson;
+  const scopedIds = resolvedPerson ? [resolvedPerson] : queryIds;
+
+  const list = useApplications(scopedIds, filters);
+  const pipeline = usePipeline(scopedIds, debounced);
 
   React.useEffect(() => {
     const timer = setTimeout(() => setSheetDebounced(sheetSearch), 200);
     return () => clearTimeout(timer);
   }, [sheetSearch]);
 
-  const sheet = useSheet(queryIds, sheetPerson, sheetDebounced);
+  const sheet = useSheet(queryIds, resolvedPerson, sheetDebounced, sheetArchived);
 
   const activeFilterCount =
     statuses.length +
@@ -185,6 +201,10 @@ export default function ApplicationsPage() {
               onValueChange={(value) => setView(value as ViewMode)}
             >
               <TabsList>
+                <TabsTrigger value="sheet">
+                  <Table2 className="mr-1 inline size-3.5" />
+                  Sheet
+                </TabsTrigger>
                 <TabsTrigger value="list">
                   <List className="mr-1 inline size-3.5" />
                   List
@@ -192,10 +212,6 @@ export default function ApplicationsPage() {
                 <TabsTrigger value="pipeline">
                   <LayoutGrid className="mr-1 inline size-3.5" />
                   Pipeline
-                </TabsTrigger>
-                <TabsTrigger value="sheet">
-                  <Table2 className="mr-1 inline size-3.5" />
-                  Sheet
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -333,6 +349,21 @@ export default function ApplicationsPage() {
         </div>
       </PageHeader>
 
+      <PersonTabs
+        people={people}
+        active={resolvedPerson}
+        onChange={setActivePerson}
+        allowAll={SUPPORTS_ALL.includes(view)}
+        counts={
+          view === "sheet" && sheet.data
+            ? Object.fromEntries(
+                sheet.data.tabs.map((tab) => [tab.person_id, tab.total]),
+              )
+            : undefined
+        }
+        className="mb-3"
+      />
+
       {view === "sheet" ? (
         sheet.isError ? (
           <Card>
@@ -347,10 +378,11 @@ export default function ApplicationsPage() {
           <SheetView
             sheet={sheet.data}
             loading={sheet.isLoading}
-            personId={sheetPerson ?? sheet.data?.person_id ?? null}
-            onPersonChange={setSheetPerson}
+            personId={resolvedPerson ?? sheet.data?.person_id ?? null}
             search={sheetSearch}
             onSearchChange={setSheetSearch}
+            includeArchived={sheetArchived}
+            onIncludeArchivedChange={setSheetArchived}
           />
         )
       ) : view === "pipeline" ? (

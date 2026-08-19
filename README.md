@@ -190,16 +190,23 @@ a newly added person is included automatically instead of being invisible until
 you re-select. The choice persists in `localStorage`, and ids for archived or
 deleted people are dropped on read.
 
-### Applications: three views
+### Applications: three views, divided by person
 
-**List** filters and sorts, **Pipeline** is the drag-and-drop Kanban, and
-**Sheet** is a spreadsheet.
+**Sheet** is the default and the spreadsheet. **List** filters and sorts, and
+**Pipeline** is the drag-and-drop Kanban.
 
-The sheet is deliberately narrow — one tab per person along the bottom, and
-three columns: **date**, **company**, and the **job description link**. Rows sit
-under a day band that states how many applications went out that day, newest
-day first, so "how much did I apply this week" is answered by scrolling rather
-than by opening analytics.
+All three share one **person tab bar**, so switching view keeps whoever you were
+looking at. The set of tabs follows the global person filter in the header:
+narrow that and the bar narrows with it. List and Pipeline also offer an
+**Everyone** tab; the Sheet does not, because a spreadsheet tab is one person by
+definition.
+
+The sheet is deliberately narrow — three columns: **date**, **company**, and the
+**job description link**. Rows sit under a day band that states how many
+applications went out that day, **oldest day at the top**, so the newest row
+lands at the bottom next to the blank row you type into rather than jumping away
+from the cursor. Rows within a day stay in the order you added them, so editing
+one does not make it move.
 
 - **Type into a cell to change it.** `Enter` saves and moves down, `Tab` saves
   and moves right, `Esc` cancels. Each cell saves on its own, so a mistyped
@@ -212,6 +219,9 @@ than by opening analytics.
   person. The day counts follow the search, so the numbers always describe
   what is on screen. Tab totals ignore it, so the tab bar holds still while you
   type.
+- **Archive** sits at the end of each row, next to the link that opens the full
+  application. Archived rows leave the sheet; tick **Show archived** to see them
+  again, greyed and tagged, with the same button offering **Restore**.
 - Rows a general user may not edit render as plain text with a **View only**
   marker; the tab for that person still opens, because reading is unrestricted
   (see [Roles and access](#roles-and-access)).
