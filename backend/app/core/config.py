@@ -85,6 +85,16 @@ class Settings(BaseSettings):
     #: would reject an ordinary comma-separated list before any validator ran.
     cors_origins: str = "http://localhost:3100,http://127.0.0.1:3100"
 
+    #: Also accept browsers on the same private network (192.168.x, 10.x,
+    #: 172.16-31.x). Without this, a teammate opening the app at
+    #: http://192.168.3.20:3100 is blocked by CORS and the page spins forever,
+    #: and the fix would otherwise be to hard-code an address that changes with
+    #: every DHCP lease.
+    #:
+    #: Only private ranges are matched, never a public address. Turn it off if
+    #: the server is ever exposed beyond a trusted LAN.
+    cors_allow_private_network: bool = True
+
     # -- workspace defaults ------------------------------------------------
     workspace_name: str = "Job Search Command Center"
     default_timezone: str = "America/New_York"
@@ -154,6 +164,25 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def cors_origin_regex(self) -> str | None:
+        """Matches any private-network origin, on any port.
+
+        `192.168.x.x`, `10.x.x.x`, `172.16-31.x.x` and `*.local`, so a teammate
+        on the LAN is allowed without anyone editing `.env` when the router
+        hands out a different address.
+        """
+        if not self.cors_allow_private_network:
+            return None
+        return (
+            r"^https?://("
+            r"192\.168\.\d{1,3}\.\d{1,3}"
+            r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+            r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+            r"|[A-Za-z0-9-]+\.local"
+            r")(:\d+)?$"
+        )
 
     @property
     def kimi_configured(self) -> bool:

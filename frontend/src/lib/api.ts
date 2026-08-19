@@ -10,8 +10,51 @@
 import { readStoredValue, writeStoredValue } from "./browser-hooks";
 import type { AuthUser } from "./types";
 
-export const API_BASE =
+/** What was configured at build time, if anything. */
+const CONFIGURED_API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8100/api/v1";
+
+/** Hosts that mean "the machine the browser is running on". */
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/**
+ * Where the API lives, resolved per request rather than frozen at build time.
+ *
+ * `NEXT_PUBLIC_API_URL` is inlined into the bundle when the app is built, so a
+ * value of `http://localhost:8100` follows the JavaScript onto every machine
+ * that opens the app. A colleague loading `http://192.168.3.20:3100` would run
+ * that bundle on their own laptop, where `localhost` is *their* machine and
+ * nothing answers on 8100 — the page loads and then spins forever.
+ *
+ * So when the configured host is a loopback address but the page is being
+ * served from somewhere else, borrow the hostname the browser already used.
+ * `192.168.3.20:3100` then calls `192.168.3.20:8100` with no rebuild, no
+ * per-machine config, and no IP baked into the repo.
+ *
+ * A non-loopback `NEXT_PUBLIC_API_URL` is always honoured as-is — that is a
+ * deliberate choice (a real domain, a reverse proxy) and must not be rewritten.
+ */
+export function apiBase(): string {
+  if (typeof window === "undefined") return CONFIGURED_API_URL;
+
+  try {
+    const configured = new URL(CONFIGURED_API_URL, window.location.origin);
+    if (!LOOPBACK.has(configured.hostname)) return configured.toString().replace(/\/$/, "");
+    if (LOOPBACK.has(window.location.hostname)) return CONFIGURED_API_URL;
+
+    configured.hostname = window.location.hostname;
+    // Keep the API's own port and path; only the host is in question.
+    return configured.toString().replace(/\/$/, "");
+  } catch {
+    return CONFIGURED_API_URL;
+  }
+}
+
+/**
+ * Build-time value. Kept for display only — call `apiBase()` for real requests,
+ * since this one cannot know which machine the browser is on.
+ */
+export const API_BASE = CONFIGURED_API_URL;
 
 export const TOKEN_KEY = "jscc.token";
 
@@ -110,9 +153,10 @@ export async function request<T>(
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
+  const base = apiBase();
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}${buildQuery(params)}`, {
+    response = await fetch(`${base}${path}${buildQuery(params)}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -123,8 +167,8 @@ export async function request<T>(
     // The backend being down is by far the most common cause here, and it is
     // worth saying so plainly rather than showing "Failed to fetch".
     throw new ApiError(
-      "Cannot reach the server. Make sure the backend is running on " +
-        `${API_BASE.replace("/api/v1", "")}.`,
+      "Cannot reach the server. Make sure the backend is running and " +
+        `reachable at ${base.replace("/api/v1", "")}.`,
       { code: "network_error", retryable: true },
     );
   }

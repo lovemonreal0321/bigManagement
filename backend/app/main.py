@@ -81,6 +81,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    # Teammates on the same LAN, whose address the router may change at any
+    # time. See `Settings.cors_origin_regex`.
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

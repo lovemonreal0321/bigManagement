@@ -482,6 +482,7 @@ commented list).
 | `AUTO_MIGRATE` | `true` | Apply migrations on startup |
 | `PORT` | `8100` | Backend port |
 | `CORS_ORIGINS` | `http://localhost:3100,…` | Comma-separated allowed origins |
+| `CORS_ALLOW_PRIVATE_NETWORK` | `true` | Also accept browsers on the same LAN (192.168.x, 10.x, 172.16–31.x, `*.local`). Never matches a public address |
 | `SYNC_WINDOW_PAST_DAYS` / `SYNC_WINDOW_FUTURE_DAYS` | `30` / `90` | Calendar import window |
 | `SYNC_INTERVAL_MINUTES` | `15` | Background sync cadence (`ENABLE_SCHEDULER=false` disables) |
 | `FOLLOWUP_AFTER_INTERVIEW_BUSINESS_DAYS` | `3` | Suggested follow-up delay |
@@ -555,12 +556,34 @@ Also check `node -v` — Next 16 needs 20.9 or newer.
 (`::1`) first, so a backend bound to `--host 127.0.0.1` is unreachable. Bind
 `--host 0.0.0.0` instead.
 
-**Reaching it from another device.** Use the machine's LAN address, e.g.
-`http://192.168.1.20:3100`, and then all three of: run the backend with
-`--host 0.0.0.0`, point `NEXT_PUBLIC_API_URL` at the same LAN address, and add
-that origin to `CORS_ORIGINS`. OAuth still has to be done from the host
-machine's browser at `localhost`, because Google rejects private IPs as
-redirect URIs.
+**Reaching it from another device on the same network.** Start both servers
+bound to every interface, then open the host machine's LAN address:
+
+```bash
+# on the machine running the app
+uvicorn app.main:app --host 0.0.0.0 --port 8100     # backend
+npm run start -- --hostname 0.0.0.0                 # frontend (or npm run dev)
+```
+
+Find the address with `ipconfig` on Windows or `ip addr` on Linux/macOS, then
+browse to `http://192.168.x.x:3100`. Nothing else needs configuring: the
+frontend notices it is being served from a non-loopback host and calls the API
+on that same host, and the backend already accepts private-network origins.
+
+If the page loads but spins forever, it is almost always one of:
+
+| Symptom | Cause |
+| --- | --- |
+| Page never appears at all | Firewall. Allow TCP 3100 and 8100 — on Windows, "Allow an app through Windows Firewall" for Node and Python, and answer *Private networks*. |
+| Page renders, then spins | The backend is bound to `127.0.0.1` rather than `0.0.0.0`, so only the host machine can reach port 8100. |
+| Spins, console shows CORS | `CORS_ALLOW_PRIVATE_NETWORK=false`, or the visitor is not on a private range. Add their origin to `CORS_ORIGINS`. |
+| Works on the host, not elsewhere | The two machines are on different subnets, or the network has client isolation (common on guest Wi-Fi). |
+
+Setting `NEXT_PUBLIC_API_URL` to a **non**-loopback address still wins, so a
+real domain or reverse proxy behaves as configured.
+
+OAuth still has to be done from the host machine's browser at `localhost`,
+because Google rejects private IPs as redirect URIs.
 
 ## Deployment
 
