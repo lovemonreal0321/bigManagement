@@ -19,6 +19,7 @@ from app.schemas.calendar import OAuthStartOut
 from app.schemas.common import OkResponse
 from app.schemas.email import (
     AiExtractionOut,
+    AiModelsOut,
     AiStatusOut,
     EmailAccountOut,
     EmailAccountUpdate,
@@ -194,6 +195,23 @@ def gmail_oauth_callback(
 @ai_router.get("/status", response_model=AiStatusOut)
 def ai_status(db: DbSession, workspace: CurrentWorkspace) -> AiStatusOut:
     return ai_service.status(db, workspace)
+
+
+@ai_router.get("/models", response_model=AiModelsOut)
+def ai_models(admin: AdminUser) -> AiModelsOut:
+    """Ask the provider which models this key may use.
+
+    Model names are retired without notice, which surfaces as an opaque
+    "Not found the model … or Permission denied". This turns that into a list.
+    """
+    from app.domains.ai import kimi
+
+    models = kimi.list_models()
+    return AiModelsOut(
+        models=models,
+        current=settings.kimi_model,
+        current_is_available=settings.kimi_model in models,
+    )
 
 
 @ai_router.get("/extractions", response_model=list[AiExtractionOut])

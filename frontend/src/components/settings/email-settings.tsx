@@ -39,6 +39,7 @@ import {
 import { ApiError } from "@/lib/api";
 import { formatCountdown } from "@/lib/format";
 import {
+  useAiModels,
   useAiStatus,
   useConnectImap,
   useDeleteEmailAccount,
@@ -55,6 +56,9 @@ export function EmailSettings() {
   const { data: accounts, isLoading } = useEmailAccounts();
   const { data: people } = usePeople();
   const { data: aiStatus } = useAiStatus();
+  // Only asked for on demand: it is a live round-trip to the provider.
+  const [checkModels, setCheckModels] = React.useState(false);
+  const aiModels = useAiModels(checkModels);
 
   const startOAuth = useStartEmailOAuth();
   const verify = useVerifyEmailAccount();
@@ -156,6 +160,67 @@ export function EmailSettings() {
             <Alert tone="info" title="Setup needed">
               {aiStatus.setup_hint}
             </Alert>
+          ) : null}
+
+          {/* Providers retire model names without notice, which otherwise
+              surfaces only as an opaque "model not found" mid-enrichment. */}
+          {aiStatus?.configured ? (
+            <div className="rounded-md border border-border p-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Model names change over time. Check what this key can use.
+                </p>
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  loading={aiModels.isFetching}
+                  onClick={() => setCheckModels(true)}
+                >
+                  <RefreshCw />
+                  Check models
+                </Button>
+              </div>
+
+              {aiModels.isError ? (
+                <Alert tone="danger" className="mt-2" title="Could not ask the provider">
+                  {aiModels.error instanceof ApiError
+                    ? aiModels.error.message
+                    : "The model list could not be fetched."}
+                </Alert>
+              ) : aiModels.data ? (
+                <div className="mt-2 space-y-1.5">
+                  {aiModels.data.current_is_available ? (
+                    <p className="flex items-center gap-1 text-xs text-status-success">
+                      <CheckCircle2 className="size-3.5" />
+                      {aiModels.data.current} is available.
+                    </p>
+                  ) : (
+                    <Alert tone="danger" title="The configured model is not available">
+                      <code>{aiModels.data.current}</code> is not one this key can
+                      use — that is what causes &ldquo;Not found the model … or
+                      Permission denied&rdquo;. Set <code>KIMI_MODEL</code> in{" "}
+                      <code>backend/.env</code> to one below and restart the
+                      backend.
+                    </Alert>
+                  )}
+                  <ul className="flex flex-wrap gap-1">
+                    {aiModels.data.models.map((model) => (
+                      <li
+                        key={model}
+                        className={
+                          "rounded border px-1.5 py-0.5 font-mono text-[11px] " +
+                          (model === aiModels.data.current
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border text-muted-foreground")
+                        }
+                      >
+                        {model}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           <p className="flex items-start gap-1.5 text-[11px] leading-snug text-subtle-foreground">

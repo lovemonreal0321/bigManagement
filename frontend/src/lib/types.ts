@@ -887,6 +887,13 @@ export interface AiStatus {
   setup_hint: string | null;
 }
 
+export interface AiModels {
+  models: string[];
+  current: string;
+  /** False when `current` is not in `models` — the cause of "model not found". */
+  current_is_available: boolean;
+}
+
 // --------------------------------------------------------------------------
 // Sheet view
 // --------------------------------------------------------------------------

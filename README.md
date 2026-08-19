@@ -425,6 +425,19 @@ Cost is kept low by design: only messages already matched to an interview are
 sent, capped at `EMAIL_MAX_MESSAGES_PER_EVENT` (default 6) with each body
 truncated to `EMAIL_BODY_EXCERPT_CHARS` (default 4000).
 
+**"Not found the model … or Permission denied".** Moonshot retires model names
+without notice — `kimi-k2-0711-preview`, this app's original default, no longer
+exists. Open **Settings → Email & AI → Check models**: it asks your key what it
+can actually use and flags the configured model if it is gone. Then set
+`KIMI_MODEL` in `backend/.env` to one of the listed names and restart the
+backend. (`GET /api/v1/ai/models` is the same thing from the command line.)
+
+**"invalid temperature: only 1 is allowed for this model".** Current Moonshot
+models accept only `temperature=1`. That is the default; if you lowered
+`KIMI_TEMPERATURE` for determinism, put it back. Extraction accuracy does not
+suffer much — the prompt constrains the output with JSON mode and an explicit
+schema.
+
 ## Calendar setup (optional)
 
 **The app is fully usable without any of this.** Unconfigured providers are
@@ -496,7 +509,8 @@ commented list).
 | `NO_ACTIVITY_GHOSTED_THRESHOLD_DAYS` | `21` | When "consider ghosted" is suggested |
 | `KIMI_API_KEY` | empty | Moonshot/Kimi key; empty disables AI cleanly |
 | `KIMI_BASE_URL` | `https://api.moonshot.ai/v1` | Use `.cn` for China-platform keys |
-| `KIMI_MODEL` | `kimi-k2-0711-preview` | Any Moonshot chat model |
+| `KIMI_MODEL` | `kimi-k3` | Any model your key can use — see Settings → Email & AI → Check models |
+| `KIMI_TEMPERATURE` | `1` | Current Moonshot models reject any other value |
 | `AI_AUTO_CREATE_CONFIDENCE` | `0.75` | Above this, records are created without asking |
 | `AI_ENABLED` | `true` | Master switch for all model calls |
 | `EMAIL_LOOKBACK_DAYS` / `EMAIL_LOOKAHEAD_DAYS` | `45` / `7` | Mail window around an event |

@@ -162,9 +162,17 @@ class Settings(BaseSettings):
     #: created on the .cn platform — keys are not interchangeable.
     kimi_api_key: str = ""
     kimi_base_url: str = "https://api.moonshot.ai/v1"
-    kimi_model: str = "kimi-k2-0711-preview"
+    #: Moonshot retires model names fairly often — `kimi-k2-0711-preview`
+    #: shipped here originally and no longer exists. `GET /api/v1/ai/models`
+    #: asks the provider what this key can actually use.
+    kimi_model: str = "kimi-k3"
     kimi_timeout_seconds: float = 60.0
     kimi_max_output_tokens: int = 1200
+    #: Extraction wants determinism, so 0.1 would be the natural choice — but
+    #: current Moonshot models reject anything other than 1 with a 400. The
+    #: prompt does the constraining instead (JSON mode plus an explicit schema).
+    #: Lower it only if you point KIMI_BASE_URL at an endpoint that allows it.
+    kimi_temperature: float = 1.0
     #: Extractions at or above this confidence create records directly; below
     #: it they wait as a suggestion.
     ai_auto_create_confidence: float = 0.75

@@ -155,3 +155,16 @@ class AiStatusOut(BaseModel):
     auto_create_confidence: float
     email_accounts: int
     setup_hint: str | None = None
+
+
+class AiModelsOut(BaseModel):
+    """What the configured key can actually use.
+
+    Provider model names churn, so this asks rather than assuming.
+    """
+
+    models: list[str]
+    current: str
+    #: False when `current` is not in `models` — the exact cause of
+    #: "Not found the model … or Permission denied".
+    current_is_available: bool

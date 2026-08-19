@@ -13,6 +13,7 @@ import { api, type QueryValue } from "./api";
 import type {
   Activity,
   AiExtraction,
+  AiModels,
   ApplicationSheet,
   AuthUser,
   AiStatus,
@@ -889,6 +890,20 @@ export function useAiStatus() {
   return useQuery({
     queryKey: ["ai", "status"],
     queryFn: () => api.get<AiStatus>("/ai/status"),
+  });
+}
+
+/**
+ * Which models the configured key may use. Only fetched when asked for, since
+ * it is a live call out to the provider.
+ */
+export function useAiModels(enabled = false) {
+  return useQuery({
+    queryKey: ["ai", "models"],
+    queryFn: () => api.get<AiModels>("/ai/models"),
+    enabled,
+    retry: false,
+    staleTime: 5 * 60_000,
   });
 }
 

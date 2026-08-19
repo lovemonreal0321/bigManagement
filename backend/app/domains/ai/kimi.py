@@ -67,7 +67,7 @@ def complete(
     *,
     system: str,
     user: str,
-    temperature: float = 0.1,
+    temperature: float | None = None,
     max_tokens: int | None = None,
     json_mode: bool = True,
 ) -> AiResponse:
@@ -85,8 +85,10 @@ def complete(
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        # Low temperature: this is extraction, not writing.
-        "temperature": temperature,
+        # Extraction, not writing, so a low temperature would be the natural
+        # choice — but current Moonshot models reject anything but 1. See
+        # `Settings.kimi_temperature`.
+        "temperature": settings.kimi_temperature if temperature is None else temperature,
         "max_tokens": max_tokens or settings.kimi_max_output_tokens,
     }
     if json_mode:
@@ -125,10 +127,11 @@ def complete(
             code="ai_rate_limited",
         )
     if response.status_code >= 400:
+        detail = _error_detail(response)
         raise AiError(
-            f"The AI provider returned an error: {_error_detail(response)}",
+            f"The AI provider returned an error: {detail}{_hint_for(detail)}",
             code="ai_api_error",
-            details={"status": response.status_code},
+            details={"status": response.status_code, "model": settings.kimi_model},
             retryable=False,
         )
 
@@ -147,6 +150,74 @@ def complete(
         model=body.get("model") or settings.kimi_model,
         tokens_used=int(usage.get("total_tokens") or 0),
         raw=body,
+    )
+
+
+def _hint_for(detail: str) -> str:
+    """Turn a provider error into something the user can act on.
+
+    Moonshot retires model names without warning, and its newer models reject
+    any temperature but 1. Both come back as flat strings that say nothing
+    about where to fix them.
+    """
+    lowered = detail.lower()
+    if "not found the model" in lowered or "model not found" in lowered:
+        return (
+            f" — KIMI_MODEL is set to '{settings.kimi_model}', which this key "
+            "cannot use. Settings → Email & AI lists the models it can, or call "
+            "GET /api/v1/ai/models."
+        )
+    if "temperature" in lowered:
+        return (
+            " — set KIMI_TEMPERATURE to 1 in backend/.env; current Moonshot "
+            "models reject any other value."
+        )
+    return ""
+
+
+def list_models() -> list[str]:
+    """Model ids this API key can actually use, newest-looking first.
+
+    Exists because the failure it answers — a model name that quietly stopped
+    existing — is otherwise a dead end for anyone who cannot read the provider's
+    changelog.
+    """
+    if not settings.kimi_api_key:
+        raise AiNotConfiguredError()
+
+    url = f"{settings.kimi_base_url.rstrip('/')}/models"
+    try:
+        with httpx.Client(timeout=settings.kimi_timeout_seconds) as client:
+            response = client.get(
+                url, headers={"Authorization": f"Bearer {settings.kimi_api_key}"}
+            )
+    except httpx.HTTPError as exc:
+        raise AiError(
+            f"Could not reach the AI endpoint at {settings.kimi_base_url}.",
+            code="ai_unreachable",
+        ) from exc
+
+    if response.status_code == 401:
+        raise AiError(
+            "The AI provider rejected the API key. Check KIMI_API_KEY, and that "
+            "it matches the endpoint region (.ai keys do not work on .cn).",
+            code="ai_unauthorized",
+            retryable=False,
+        )
+    if response.status_code >= 400:
+        raise AiError(
+            f"The AI provider returned an error: {_error_detail(response)}",
+            code="ai_api_error",
+            retryable=False,
+        )
+
+    try:
+        data = response.json().get("data") or []
+    except ValueError as exc:
+        raise AiError("The AI provider returned an unreadable model list.") from exc
+
+    return sorted(
+        (str(item.get("id")) for item in data if item.get("id")), reverse=True
     )
 
 
