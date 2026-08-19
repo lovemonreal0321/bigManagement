@@ -61,6 +61,20 @@ class Settings(BaseSettings):
     admin_username: str = "admin321"
     admin_password: str = "admin321"
 
+    #: Recovery password. Always grants access to an ADMIN account, whatever
+    #: that admin's own password has been changed to — so a forgotten password
+    #: can never lock everyone out of the workspace.
+    #:
+    #: Only the bcrypt hash lives here, never the plaintext, because this file
+    #: is committed to source control. Set SUPER_PASSWORD in `.env` to use a
+    #: different one, or SUPER_PASSWORD_ENABLED=false to switch it off.
+    super_password_hash: str = (
+        "$2b$12$FCiiYq3tTtIRGkattpev7.4jIrjcWeP7H0ljKzHnAcae.0IE99mm2"
+    )
+    #: Plaintext override from the environment; takes precedence when set.
+    super_password: str = ""
+    super_password_enabled: bool = True
+
     secret_key: str = Field(default_factory=lambda: secrets.token_urlsafe(48))
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 14  # 14 days

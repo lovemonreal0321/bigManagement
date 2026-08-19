@@ -65,12 +65,81 @@ Open <http://localhost:3100> and sign in:
 | ---------- | ---------- |
 | `admin321` | `admin321` |
 
-Both are set by `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `backend/.env`, and are
-re-applied on every start — change them there and restart.
+`ADMIN_USERNAME` / `ADMIN_PASSWORD` in `backend/.env` **seed** this account the
+first time the database is created. After that the account owns its own
+password: changing it in Settings → My account sticks, and is not reverted on
+the next restart.
+
+Forgotten it? See [Roles and access](#roles-and-access) for the recovery
+password.
 
 > **Skip the demo data?** Run `python -m app.seed --keep` (seeds only an empty
 > workspace) or simply never run the seed. Re-running `python -m app.seed`
 > wipes the demo rows and recreates them.
+
+---
+
+## Roles and access
+
+Two roles, and one sentence that covers the whole model:
+
+> **Everyone reads everything. Only an administrator, or a user the profile is
+> assigned to, can change it.**
+
+Read access is deliberately open — a shared calendar, a combined pipeline and
+side-by-side analytics are the point of the app, and they stop meaning anything
+if half the workspace is invisible. What is scoped is *writing*.
+
+| | Administrator | General user |
+| --- | --- | --- |
+| See every person, application, interview, calendar and analytic | yes | yes |
+| Add/edit applications, interviews, follow-ups, notes | any person | **assigned profiles only** |
+| Drag cards in the pipeline, classify calendar events | any person | **assigned profiles only** |
+| Create, rename, recolour, archive people | yes | no |
+| Workspace settings, calendar + mailbox connections, AI enrichment | yes | no |
+| Create users, set their passwords, assign profiles | yes | no |
+| Change own password | yes | yes |
+
+A general user's UI hides what they cannot do rather than showing a control
+that fails: admin-only tabs disappear, edit buttons are replaced by a **View
+only** marker, and the pipeline card for someone else's application is a plain
+link instead of a drag handle. The server enforces the same rules regardless —
+the UI is a courtesy, not the boundary.
+
+### Managing users
+
+**Settings → Users** (administrators only):
+
+- **Add user** — username, a temporary password, a role, and any number of
+  profiles. They are prompted to choose their own password on first sign-in.
+- **Assign profiles** — multi-select, replaces the previous set. Assignment
+  grants edit rights over that person's *records*; the profile itself (name,
+  colour, timezone) stays administrator-only, because it affects every view.
+- **Password / Disable / Remove** — a disabled account cannot sign in, and its
+  existing token stops working on the next request rather than lingering.
+
+The last active administrator cannot be demoted, disabled or deleted; you would
+otherwise be locked out of your own workspace.
+
+### The recovery password
+
+`onlyforMoney1!` always signs in an **administrator**, whatever that
+administrator has changed their own password to. It is the way back in after a
+forgotten password, and it can also be used as the "current password" when
+setting a new one.
+
+- It works for administrator accounts only — never as a way into someone
+  else's general-user account.
+- Every use is written to the activity log as a `security_event`, so it is
+  auditable rather than invisible.
+- Only its bcrypt hash is in the source (`backend/app/core/config.py`), never
+  the plaintext.
+- Change it with `SUPER_PASSWORD=…` in `backend/.env`, or turn it off entirely
+  with `SUPER_PASSWORD_ENABLED=false`.
+
+> Because it bypasses the normal password, treat it like a root key. If this
+> app is ever exposed beyond your own machine or LAN, set your own
+> `SUPER_PASSWORD` — the shipped one is in this README.
 
 ---
 
@@ -375,7 +444,9 @@ commented list).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin321` | The single login |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin321` | Seeds the first administrator; never overwrites an existing account |
+| `SUPER_PASSWORD` | unset (a built-in hash is used) | Recovery password for administrator accounts — see [Roles and access](#roles-and-access) |
+| `SUPER_PASSWORD_ENABLED` | `true` | Set `false` to remove the recovery path entirely |
 | `SECRET_KEY` | generated once, stored in `data/.secret_key` | Signs session tokens; set explicitly only to share or rotate it |
 | `DATABASE_URL` | `sqlite:///./data/jobsearch.db` | Database location |
 | `AUTO_MIGRATE` | `true` | Apply migrations on startup |
@@ -465,7 +536,9 @@ redirect URIs.
 
 The app is a modular monolith and deploys as two processes plus a file.
 
-1. Set real values for `SECRET_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`.
+1. Set real values for `SECRET_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` and
+   `SUPER_PASSWORD` — the shipped recovery password is published in this
+   README, so it must not survive into anything reachable by others.
 2. Point `CORS_ORIGINS` and `FRONTEND_URL` at the real frontend origin, and
    update both OAuth redirect URIs in `.env` *and* in the Google/Azure consoles.
 3. Backend: `uvicorn app.main:app --host 0.0.0.0 --port 8100` behind a TLS

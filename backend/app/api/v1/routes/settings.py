@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.deps import CurrentWorkspace, DbSession
+from app.core.deps import AdminUser, CurrentWorkspace, DbSession
 from app.core.timeutils import is_valid_timezone
 from app.schemas.common import ORMModel
 
@@ -64,8 +64,15 @@ def get_settings(workspace: CurrentWorkspace) -> WorkspaceSettingsOut:
 
 @router.patch("", response_model=WorkspaceSettingsOut)
 def update_settings(
-    payload: WorkspaceSettingsUpdate, db: DbSession, workspace: CurrentWorkspace
+    payload: WorkspaceSettingsUpdate,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> WorkspaceSettingsOut:
+    """Workspace-wide settings — sync windows, thresholds, default timezone.
+
+    These affect every person, so they are administrator-only.
+    """
     for key, value in payload.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(workspace, key, value)

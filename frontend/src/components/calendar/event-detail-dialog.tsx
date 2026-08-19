@@ -23,7 +23,9 @@ import {
   NativeSelect,
   Skeleton,
 } from "@/components/ui/primitives";
+import { ReadOnlyNote } from "@/components/shared/read-only";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import {
   CLASSIFICATION_LABELS,
   formatDate,
@@ -57,6 +59,9 @@ export function EventDetailDialog({
   const { data: detail, isLoading } = useCalendarEvent(
     isExternal ? calendarEventId : null,
   );
+  const { canEdit } = useAuth();
+  // Classifying and linking author records against the event's person.
+  const editable = canEdit(event?.person_id);
   const classify = useClassifyEvent();
   // Keyed by event id below, so switching events resets the flow without an
   // effect.
@@ -157,6 +162,7 @@ export function EventDetailDialog({
                   </p>
                 ) : null}
 
+                {editable ? (
                 <Field label="Classification">
                   <div className="flex flex-wrap gap-1.5">
                     {EVENT_CLASSIFICATIONS.filter(
@@ -200,12 +206,15 @@ export function EventDetailDialog({
                     })}
                   </div>
                 </Field>
+                ) : (
+                  <ReadOnlyNote />
+                )}
 
                 {detail?.interview_stage_id ? (
                   <Alert tone="success" title="Linked to an interview">
                     {detail.company_name} — {detail.stage_badge}
                   </Alert>
-                ) : mode === "none" ? (
+                ) : !editable ? null : mode === "none" ? (
                   <div className="flex flex-wrap gap-2 border-t border-border pt-3">
                     <Button
                       size="sm"

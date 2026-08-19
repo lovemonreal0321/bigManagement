@@ -8,7 +8,14 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 
-from app.core.deps import CurrentWorkspace, DbSession, SelectedPeople
+from app.core import permissions
+from app.core.deps import (
+    AdminUser,
+    CurrentUser,
+    CurrentWorkspace,
+    DbSession,
+    SelectedPeople,
+)
 from app.core.errors import ConflictError, ValidationError
 from app.domains.interviews import service as interview_service
 from app.domains.interviews.serialize import event_to_out, stage_to_out
@@ -56,9 +63,15 @@ def list_types(
 
 @types_router.post("", response_model=InterviewTypeOut, status_code=201)
 def create_type(
-    payload: InterviewTypeCreate, db: DbSession, workspace: CurrentWorkspace
+    payload: InterviewTypeCreate,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> InterviewTypeOut:
-    """Custom interview types (spec §14)."""
+    """Custom interview types (spec §14).
+
+    Workspace-wide vocabulary shared by every person, so administrator-only.
+    """
     key = payload.label.strip().lower().replace(" ", "_").replace("-", "_")
     key = "".join(ch for ch in key if ch.isalnum() or ch == "_")[:64]
     if not key:
@@ -108,6 +121,7 @@ def update_type(
     payload: InterviewTypeUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> InterviewTypeOut:
     interview_type = db.get(InterviewType, type_id)
     if interview_type is None or interview_type.workspace_id != workspace.id:
@@ -151,7 +165,9 @@ def create_stage(
     payload: InterviewStageCreate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> InterviewStageOut:
+    permissions.require_application_edit(db, user, application_id)
     stage = interview_service.create_stage(db, workspace, application_id, payload)
     db.refresh(stage)
     return stage_to_out(stage, load_registry(db, workspace.id))
@@ -166,7 +182,9 @@ def reorder_stages(
     payload: InterviewStageReorder,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> list[InterviewStageOut]:
+    permissions.require_application_edit(db, user, application_id)
     stages = interview_service.reorder_stages(
         db, workspace, application_id, payload.stage_ids
     )
@@ -188,7 +206,9 @@ def update_stage(
     payload: InterviewStageUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> InterviewStageOut:
+    permissions.require_stage_edit(db, user, stage_id)
     stage = interview_service.update_stage(db, workspace, stage_id, payload)
     db.refresh(stage)
     return stage_to_out(stage, load_registry(db, workspace.id))
@@ -200,8 +220,10 @@ def set_outcome(
     payload: InterviewOutcomeUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> InterviewStageOut:
     """The "How did it go?" quick action (spec §49)."""
+    permissions.require_stage_edit(db, user, stage_id)
     stage = interview_service.set_outcome(db, workspace, stage_id, payload)
     db.refresh(stage)
     return stage_to_out(stage, load_registry(db, workspace.id))
@@ -209,8 +231,9 @@ def set_outcome(
 
 @router.delete("/interview-stages/{stage_id}", response_model=OkResponse)
 def delete_stage(
-    stage_id: str, db: DbSession, workspace: CurrentWorkspace
+    stage_id: str, db: DbSession, workspace: CurrentWorkspace, user: CurrentUser
 ) -> OkResponse:
+    permissions.require_stage_edit(db, user, stage_id)
     interview_service.delete_stage(db, workspace, stage_id)
     return OkResponse(message="Interview removed.")
 
@@ -230,7 +253,9 @@ def add_event(
     payload: InterviewEventCreate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> InterviewEventOut:
+    permissions.require_stage_edit(db, user, stage_id)
     event = interview_service.add_event(db, workspace, stage_id, payload)
     stage = interview_service.get_stage(db, workspace, stage_id)
     return event_to_out(event, load_registry(db, workspace.id), stage)
@@ -242,7 +267,9 @@ def update_event(
     payload: InterviewEventUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> InterviewEventOut:
+    permissions.require_event_edit(db, user, event_id)
     event = interview_service.update_event(db, workspace, event_id, payload)
     stage = interview_service.get_stage(db, workspace, event.interview_stage_id)
     return event_to_out(event, load_registry(db, workspace.id), stage)
@@ -250,8 +277,9 @@ def update_event(
 
 @router.delete("/interview-events/{event_id}", response_model=OkResponse)
 def delete_event(
-    event_id: str, db: DbSession, workspace: CurrentWorkspace
+    event_id: str, db: DbSession, workspace: CurrentWorkspace, user: CurrentUser
 ) -> OkResponse:
+    permissions.require_event_edit(db, user, event_id)
     interview_service.delete_event(db, workspace, event_id)
     return OkResponse(message="Interview slot removed.")
 

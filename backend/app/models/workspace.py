@@ -5,12 +5,41 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.core.types import GUID, UTCDateTime
+from app.enums import UserRole
 from app.models.base import TimestampMixin, UUIDMixin
+
+#: Which profiles a user may edit. A user with no rows here can edit nothing
+#: and reads everything — which is the safe default for a new account.
+user_people = Table(
+    "user_people",
+    Base.metadata,
+    Column(
+        "user_id",
+        GUID,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "person_id",
+        GUID,
+        ForeignKey("people.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
 
 if TYPE_CHECKING:
     from app.models.person import Person
@@ -91,4 +120,32 @@ class User(Base, UUIDMixin, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
+    #: `admin` may do anything; `user` edits only assigned profiles.
+    role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=UserRole.USER.value
+    )
+    #: Disable a login without deleting it, so its history stays readable.
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: Set when an admin creates or resets the password, so the UI can prompt.
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    #: True once this account has signed in with its own password rather than
+    #: the recovery password.
+    password_changed_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime, nullable=True
+    )
+
     workspace: Mapped[Workspace] = relationship(back_populates="users")
+    #: Profiles this user may edit. Empty for an admin, who may edit all.
+    people: Mapped[list[Person]] = relationship(
+        secondary=user_people, lazy="selectin"
+    )
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == UserRole.ADMIN.value
+
+    @property
+    def assigned_person_ids(self) -> list[str]:
+        return [person.id for person in self.people]

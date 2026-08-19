@@ -13,6 +13,7 @@ import { api, type QueryValue } from "./api";
 import type {
   Activity,
   AiExtraction,
+  AuthUser,
   AiStatus,
   Analytics,
   Application,
@@ -38,6 +39,8 @@ import type {
   SyncResult,
   SyncSummary,
   UpcomingInterview,
+  UserCreatePayload,
+  UserUpdatePayload,
   Workload,
   WorkspaceSettings,
 } from "./types";
@@ -79,6 +82,7 @@ export const queryKeys = {
   upcoming: (personIds: PersonIds) => ["upcoming", scope(personIds)] as const,
   activity: (personIds: PersonIds, applicationId?: string) =>
     ["activity", scope(personIds), applicationId ?? "all"] as const,
+  users: ["users"] as const,
 };
 
 /** Invalidate everything that can be affected by a write. */
@@ -699,6 +703,74 @@ export function usePersonArchive() {
     mutationFn: ({ id, restore }: { id: string; restore?: boolean }) =>
       api.post(`/people/${id}/${restore ? "restore" : "archive"}`),
     onSuccess: invalidate,
+  });
+}
+
+// --------------------------------------------------------------------------
+// Users and roles
+//
+// Every endpoint here is administrator-only on the server. The UI hides these
+// controls rather than letting the user discover the 403.
+// --------------------------------------------------------------------------
+
+export function useUsers(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.users,
+    queryFn: () => api.get<AuthUser[]>("/users"),
+    enabled,
+  });
+}
+
+/** Shared wrapper: every user mutation refreshes the same list. */
+function useUserMutation<TVars>(fn: (vars: TVars) => Promise<unknown>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: queryKeys.users });
+    },
+  });
+}
+
+export function useCreateUser() {
+  return useUserMutation((body: UserCreatePayload) =>
+    api.post<AuthUser>("/users", body),
+  );
+}
+
+export function useUpdateUser() {
+  return useUserMutation(
+    ({ id, body }: { id: string; body: UserUpdatePayload }) =>
+      api.patch<AuthUser>(`/users/${id}`, body),
+  );
+}
+
+export function useSetUserPassword() {
+  return useUserMutation(({ id, password }: { id: string; password: string }) =>
+    api.put<AuthUser>(`/users/${id}/password`, { password }),
+  );
+}
+
+export function useAssignPeople() {
+  return useUserMutation(
+    ({ id, personIds }: { id: string; personIds: string[] }) =>
+      api.put<AuthUser>(`/users/${id}/people`, { person_ids: personIds }),
+  );
+}
+
+export function useDeleteUser() {
+  return useUserMutation((id: string) => api.del(`/users/${id}`));
+}
+
+export function useChangeOwnPassword() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { current_password: string; new_password: string }) =>
+      api.post<AuthUser>("/auth/password", body),
+    onSuccess: () => {
+      // `must_change_password` just flipped, so the cached session is stale.
+      client.invalidateQueries({ queryKey: ["auth", "me"] });
+    },
   });
 }
 

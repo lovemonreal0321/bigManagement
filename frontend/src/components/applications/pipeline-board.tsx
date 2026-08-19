@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { PersonAvatar, PriorityBadge, StageBadge } from "@/components/shared/badges";
 import { Skeleton } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatDate, formatDaysAgo } from "@/lib/format";
 import { useChangeApplicationStatus } from "@/lib/queries";
 import type { PipelineCard, PipelineColumn } from "@/lib/types";
@@ -103,15 +104,20 @@ function Card({
 }
 
 function DraggableCard({ card }: { card: PipelineCard }) {
+  // Dragging a card changes its status, so a card belonging to someone this
+  // user does not look after stays a plain link.
+  const { canEdit } = useAuth();
+  const draggable = canEdit(card.person_id);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: card.id,
     data: { card },
+    disabled: !draggable,
   });
 
   return (
     <div
       ref={setNodeRef}
-      {...listeners}
+      {...(draggable ? listeners : {})}
       {...attributes}
       className={cn("touch-none", isDragging && "opacity-40")}
     >
@@ -122,7 +128,10 @@ function DraggableCard({ card }: { card: PipelineCard }) {
         onClick={(event) => {
           if (isDragging) event.preventDefault();
         }}
-        className="block cursor-grab active:cursor-grabbing"
+        className={cn(
+          "block",
+          draggable && "cursor-grab active:cursor-grabbing",
+        )}
       >
         <Card card={card} />
       </Link>

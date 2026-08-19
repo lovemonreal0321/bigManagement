@@ -20,6 +20,7 @@ from app.api.v1.routes import (
 api_router = APIRouter()
 
 api_router.include_router(auth.router)
+api_router.include_router(auth.users_router)
 api_router.include_router(people.router)
 api_router.include_router(applications.router)
 api_router.include_router(interviews.types_router)

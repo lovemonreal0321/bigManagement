@@ -7,7 +7,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.core.deps import CurrentWorkspace, DbSession, SelectedPeople
+from app.core import permissions
+from app.core.deps import CurrentUser, CurrentWorkspace, DbSession, SelectedPeople
 from app.domains.applications import service as app_service
 from app.domains.applications.service import ApplicationFilters
 from app.schemas.application import (
@@ -134,8 +135,14 @@ def filter_options(db: DbSession, workspace: CurrentWorkspace) -> dict[str, list
 
 @router.post("", response_model=ApplicationOut, status_code=201)
 def create_application(
-    payload: ApplicationCreate, db: DbSession, workspace: CurrentWorkspace
+    payload: ApplicationCreate,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> ApplicationOut:
+    permissions.require_person_edit(
+        user, payload.person_id, what="this person's applications"
+    )
     application = app_service.create_application(db, workspace, payload)
     return app_service.decorate_applications(db, workspace, [application])[0]
 
@@ -153,7 +160,9 @@ def update_application(
     payload: ApplicationUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> ApplicationOut:
+    permissions.require_application_edit(db, user, application_id)
     application = app_service.update_application(
         db, workspace, application_id, payload
     )
@@ -166,7 +175,9 @@ def change_status(
     payload: ApplicationStatusUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> ApplicationOut:
+    permissions.require_application_edit(db, user, application_id)
     application = app_service.change_status(
         db, workspace, application_id, status=payload.status, column=payload.column
     )
@@ -175,24 +186,27 @@ def change_status(
 
 @router.post("/{application_id}/archive", response_model=ApplicationOut)
 def archive_application(
-    application_id: str, db: DbSession, workspace: CurrentWorkspace
+    application_id: str, db: DbSession, workspace: CurrentWorkspace, user: CurrentUser
 ) -> ApplicationOut:
+    permissions.require_application_edit(db, user, application_id)
     application = app_service.archive_application(db, workspace, application_id)
     return app_service.decorate_applications(db, workspace, [application])[0]
 
 
 @router.post("/{application_id}/restore", response_model=ApplicationOut)
 def restore_application(
-    application_id: str, db: DbSession, workspace: CurrentWorkspace
+    application_id: str, db: DbSession, workspace: CurrentWorkspace, user: CurrentUser
 ) -> ApplicationOut:
+    permissions.require_application_edit(db, user, application_id)
     application = app_service.restore_application(db, workspace, application_id)
     return app_service.decorate_applications(db, workspace, [application])[0]
 
 
 @router.delete("/{application_id}", response_model=OkResponse)
 def delete_application(
-    application_id: str, db: DbSession, workspace: CurrentWorkspace
+    application_id: str, db: DbSession, workspace: CurrentWorkspace, user: CurrentUser
 ) -> OkResponse:
+    permissions.require_application_edit(db, user, application_id)
     app_service.delete_application(db, workspace, application_id)
     return OkResponse(message="Application deleted.")
 
@@ -205,7 +219,9 @@ def add_note(
     payload: ApplicationNoteCreate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> ApplicationNoteOut:
+    permissions.require_application_edit(db, user, application_id)
     return ApplicationNoteOut.model_validate(
         app_service.add_note(db, workspace, application_id, payload.body)
     )
@@ -213,7 +229,12 @@ def add_note(
 
 @router.delete("/{application_id}/notes/{note_id}", response_model=OkResponse)
 def delete_note(
-    application_id: str, note_id: str, db: DbSession, workspace: CurrentWorkspace
+    application_id: str,
+    note_id: str,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> OkResponse:
+    permissions.require_application_edit(db, user, application_id)
     app_service.delete_note(db, workspace, application_id, note_id)
     return OkResponse(message="Note deleted.")

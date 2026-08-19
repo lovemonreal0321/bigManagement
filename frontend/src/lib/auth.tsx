@@ -27,6 +27,17 @@ import type { AuthUser } from "./types";
 interface AuthState {
   user: AuthUser | null;
   status: "loading" | "authenticated" | "anonymous";
+  /** Full access to the workspace: people, settings, connections, users. */
+  isAdmin: boolean;
+  /**
+   * Whether this user may change records belonging to `personId`.
+   *
+   * The server enforces the same rule; this exists so the UI can disable a
+   * control instead of letting someone fill in a form and then be refused.
+   * Passing `null`/`undefined` (person not yet chosen) answers `false` for a
+   * general user, so nothing is enabled by accident.
+   */
+  canEdit: (personId: string | null | undefined) => boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -90,7 +101,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     else if (me.data) status = "authenticated";
     else status = "loading";
 
-    return { user: me.data ?? null, status, login, logout };
+    const user = me.data ?? null;
+    const isAdmin = user?.role === "admin";
+    const assigned = new Set(user?.assigned_person_ids ?? []);
+    const canEdit = (personId: string | null | undefined) =>
+      isAdmin ? true : Boolean(personId) && assigned.has(personId!);
+
+    return { user, status, isAdmin, canEdit, login, logout };
   }, [hydrated, token, me.data, me.isError, login, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

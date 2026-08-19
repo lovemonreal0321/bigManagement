@@ -28,7 +28,9 @@ import {
   ErrorState,
   Skeleton,
 } from "@/components/ui/primitives";
+import { ReadOnlyNote } from "@/components/shared/read-only";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatDateOnly } from "@/lib/format";
 import { usePersonFilter } from "@/lib/person-filter";
 import {
@@ -75,6 +77,7 @@ const SECTIONS = [
 export default function FollowUpsPage() {
   const { queryIds } = usePersonFilter();
   const board = useFollowUpBoard(queryIds);
+  const { canEdit } = useAuth();
   const action = useFollowUpAction();
   const remove = useDeleteFollowUp();
 
@@ -219,6 +222,10 @@ export default function FollowUpsPage() {
                         </div>
 
                         <div className="flex shrink-0 flex-wrap items-center gap-1">
+                          {!canEdit(followUp.person_id) ? (
+                            <ReadOnlyNote />
+                          ) : (
+                          <>
                           {followUp.computed_status !== "completed" ? (
                             <>
                               <Button
@@ -287,6 +294,8 @@ export default function FollowUpsPage() {
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
+                          </>
+                          )}
                         </div>
                       </div>
                     </li>

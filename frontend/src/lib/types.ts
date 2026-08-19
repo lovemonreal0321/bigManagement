@@ -740,12 +740,39 @@ export interface Page<T> {
   offset: number;
 }
 
+export type UserRole = "admin" | "user";
+
 export interface AuthUser {
   id: string;
   username: string;
   display_name: string;
   email: string | null;
   workspace_id: string;
+  role: UserRole;
+  is_active: boolean;
+  must_change_password: boolean;
+  last_login_at: string | null;
+  /**
+   * Profiles this user may edit. Always empty for an admin, who may edit
+   * everyone — check the role before reading this as "nothing".
+   */
+  assigned_person_ids: string[];
+}
+
+export interface UserCreatePayload {
+  username: string;
+  password: string;
+  display_name?: string;
+  email?: string | null;
+  role?: UserRole;
+  person_ids?: string[];
+}
+
+export interface UserUpdatePayload {
+  display_name?: string;
+  email?: string | null;
+  role?: UserRole;
+  is_active?: boolean;
 }
 
 // --------------------------------------------------------------------------

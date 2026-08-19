@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.enums import ActivityType
@@ -64,8 +64,12 @@ def list_activities(
 
     if person_ids is not None:
         # Workspace-level entries (person_id NULL) stay visible regardless of
-        # the person filter — e.g. "3 people archived" style bookkeeping.
-        clause = Activity.person_id.in_(person_ids)
+        # the person filter — e.g. a recovery sign-in, or "3 people archived"
+        # style bookkeeping. `IN (...)` alone would drop them, because SQL
+        # comparisons against NULL are never true.
+        clause = or_(
+            Activity.person_id.in_(person_ids), Activity.person_id.is_(None)
+        )
         stmt = stmt.where(clause)
         count_stmt = count_stmt.where(clause)
     if application_id:

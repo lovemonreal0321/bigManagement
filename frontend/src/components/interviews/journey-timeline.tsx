@@ -96,10 +96,16 @@ export function JourneyTimeline({
   appliedDate: string | null;
   stages: InterviewStage[];
   tz?: string;
-  onEdit: (stage: InterviewStage) => void;
-  onRecordOutcome: (stage: InterviewStage) => void;
-  onDelete: (stage: InterviewStage) => void;
+  /**
+   * Omit the callbacks to render a read-only journey — the actions menu
+   * disappears with them, rather than offering something that would be
+   * refused.
+   */
+  onEdit?: (stage: InterviewStage) => void;
+  onRecordOutcome?: (stage: InterviewStage) => void;
+  onDelete?: (stage: InterviewStage) => void;
 }) {
+  const readOnly = !onEdit && !onRecordOutcome && !onDelete;
   return (
     <ol className="relative">
       {/* "Applied" is always the first node of the journey. */}
@@ -177,27 +183,41 @@ export function JourneyTimeline({
                     </span>
                   ) : null}
 
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="icon-sm" variant="ghost" aria-label="Actions">
-                        <MoreHorizontal />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuItem onSelect={() => onRecordOutcome(stage)}>
-                        Record result
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => onEdit(stage)}>
-                        Edit interview
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        destructive
-                        onSelect={() => onDelete(stage)}
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {readOnly ? null : (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label="Actions"
+                        >
+                          <MoreHorizontal />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {onRecordOutcome ? (
+                          <DropdownMenuItem
+                            onSelect={() => onRecordOutcome(stage)}
+                          >
+                            Record result
+                          </DropdownMenuItem>
+                        ) : null}
+                        {onEdit ? (
+                          <DropdownMenuItem onSelect={() => onEdit(stage)}>
+                            Edit interview
+                          </DropdownMenuItem>
+                        ) : null}
+                        {onDelete ? (
+                          <DropdownMenuItem
+                            destructive
+                            onSelect={() => onDelete(stage)}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
 

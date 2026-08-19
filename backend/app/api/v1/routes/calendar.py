@@ -9,9 +9,16 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse
 
+from app.core import permissions
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import CurrentWorkspace, DbSession, SelectedPeople
+from app.core.deps import (
+    AdminUser,
+    CurrentUser,
+    CurrentWorkspace,
+    DbSession,
+    SelectedPeople,
+)
 from app.core.errors import AppError
 from app.core.timeutils import utcnow
 from app.domains.auth.service import get_workspace
@@ -77,6 +84,7 @@ def update_connection(
     payload: ConnectionUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> CalendarConnectionOut:
     return calendar_service.update_connection_settings(
         db,
@@ -95,6 +103,7 @@ def update_calendar_selection(
     payload: CalendarSelectionUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> CalendarConnectionOut:
     return calendar_service.update_calendar_selection(
         db, workspace, connection_id, payload.selected_calendar_ids
@@ -106,14 +115,14 @@ def update_calendar_selection(
     response_model=CalendarConnectionOut,
 )
 def refresh_calendars(
-    connection_id: str, db: DbSession, workspace: CurrentWorkspace
+    connection_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> CalendarConnectionOut:
     return calendar_service.refresh_calendars(db, workspace, connection_id)
 
 
 @router.delete("/connections/{connection_id}", response_model=OkResponse)
 def disconnect(
-    connection_id: str, db: DbSession, workspace: CurrentWorkspace
+    connection_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> OkResponse:
     calendar_service.disconnect(db, workspace, connection_id)
     return OkResponse(message="Calendar disconnected.")
@@ -130,6 +139,7 @@ def start_oauth(
     person_id: Annotated[str, Query()],
     db: DbSession,
     workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> OAuthStartOut:
     url = calendar_service.start_oauth(db, workspace, person_id, provider)
     return OAuthStartOut(authorization_url=url)
@@ -184,6 +194,11 @@ def oauth_callback(
 
 # --------------------------------------------------------------------------
 # Sync
+#
+# Deliberately open to any signed-in user. A sync pulls from the provider,
+# which is the source of truth; it authors nothing the user could not already
+# see, and stale calendars would make everyone's view wrong, not just their
+# own.
 # --------------------------------------------------------------------------
 
 
@@ -266,8 +281,10 @@ def classify_event(
     payload: EventClassificationUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> CalendarEventOut:
     """Triage an imported event (spec §7)."""
+    permissions.require_calendar_event_edit(db, user, event_id)
     event = calendar_service.get_event(db, workspace, event_id)
     sync_service.classify_event(db, workspace, event, payload.classification)
     return calendar_service.event_to_out(db, event, load_registry(db, workspace.id))
@@ -290,7 +307,9 @@ def dismiss_suggestion(
     payload: DismissSuggestionRequest,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> OkResponse:
+    permissions.require_calendar_event_edit(db, user, event_id)
     calendar_service.dismiss_suggestion(db, workspace, event_id, payload.dismissed)
     return OkResponse(message="Suggestion dismissed.")
 
@@ -301,9 +320,13 @@ def link_event(
     payload: LinkEventToApplication,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> InterviewStageOut:
     """Attach an imported event to an application (spec §46)."""
     from app.domains.interviews.serialize import stage_to_out
+
+    permissions.require_calendar_event_edit(db, user, event_id)
+    permissions.require_application_edit(db, user, payload.application_id)
 
     stage = calendar_service.link_event_to_application(
         db, workspace, event_id, payload
@@ -318,8 +341,10 @@ def create_application_from_event(
     payload: CreateApplicationFromEvent,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> dict[str, str]:
     """Create a new application straight from an imported event (spec §46)."""
+    permissions.require_calendar_event_edit(db, user, event_id)
     application = calendar_service.create_application_from_event(
         db, workspace, event_id, payload
     )

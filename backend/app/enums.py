@@ -14,6 +14,17 @@ from enum import StrEnum
 # --------------------------------------------------------------------------
 
 
+class UserRole(StrEnum):
+    """Who can change what.
+
+    `ADMIN` may do anything in the workspace. `USER` may edit only the profiles
+    assigned to them and reads everything else.
+    """
+
+    ADMIN = "admin"
+    USER = "user"
+
+
 class PersonStatus(StrEnum):
     ACTIVE = "active"
     ARCHIVED = "archived"
@@ -413,3 +424,7 @@ class ActivityType(StrEnum):
     CALENDAR_EVENT_LINKED = "calendar_event_linked"
     CALENDAR_EVENT_CLASSIFIED = "calendar_event_classified"
     NOTE_ADDED = "note_added"
+    #: Sign-ins with the recovery password, role changes, account creation. Kept
+    #: in the same log so an administrator has one place to look, but tagged so
+    #: it can be filtered out of a person's own timeline.
+    SECURITY_EVENT = "security_event"

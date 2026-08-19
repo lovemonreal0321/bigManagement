@@ -25,6 +25,7 @@ import {
   Skeleton,
 } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import {
   useCreatePerson,
   usePeople,
@@ -44,6 +45,10 @@ import { cn } from "@/lib/utils";
 export default function PeoplePage() {
   const [includeArchived, setIncludeArchived] = React.useState(false);
   const { data: people, isLoading } = usePeople(includeArchived);
+  // Profiles are workspace-level: names and colours affect every view, so
+  // creating and editing them is an administrator's job even for a user who
+  // looks after that person's applications.
+  const { isAdmin } = useAuth();
   const archive = usePersonArchive();
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -65,17 +70,19 @@ export default function PeoplePage() {
               />
               Show archived
             </label>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => {
-                setEditing(null);
-                setDialogOpen(true);
-              }}
-            >
-              <Plus />
-              Add person
-            </Button>
+            {isAdmin ? (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  setEditing(null);
+                  setDialogOpen(true);
+                }}
+              >
+                <Plus />
+                Add person
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -91,18 +98,24 @@ export default function PeoplePage() {
           <EmptyState
             icon={Users}
             title="No people yet"
-            description="Add the first person. Applications, interviews and follow-ups all belong to someone."
+            description={
+              isAdmin
+                ? "Add the first person. Applications, interviews and follow-ups all belong to someone."
+                : "An administrator needs to add the first person before there is anything to track."
+            }
             action={
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => {
-                  setEditing(null);
-                  setDialogOpen(true);
-                }}
-              >
-                Add person
-              </Button>
+              isAdmin ? (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    setEditing(null);
+                    setDialogOpen(true);
+                  }}
+                >
+                  Add person
+                </Button>
+              ) : null
             }
           />
         </Card>
@@ -145,6 +158,7 @@ export default function PeoplePage() {
                   </p>
                 </div>
 
+                {isAdmin ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="icon-sm" variant="ghost" aria-label="Actions">
@@ -186,6 +200,7 @@ export default function PeoplePage() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                ) : null}
               </div>
 
               <dl className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-3 text-xs">

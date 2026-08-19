@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.core.deps import CurrentWorkspace, DbSession
+from app.core.deps import AdminUser, CurrentWorkspace, DbSession
 from app.domains.people import service as people_service
 from app.domains.people.colors import PERSON_COLOR_PALETTE
 from app.schemas.common import OkResponse
@@ -17,6 +17,10 @@ from app.schemas.person import (
 )
 
 router = APIRouter(prefix="/people", tags=["people"])
+
+# Reading people is open to everyone — the shared calendar and comparison views
+# depend on it. Creating, editing, archiving and deleting a profile is
+# workspace administration, so those routes take `AdminUser`.
 
 
 @router.get("", response_model=list[PersonWithStats])
@@ -50,7 +54,7 @@ def list_colors() -> list[str]:
 
 @router.post("", response_model=PersonOut, status_code=201)
 def create_person(
-    payload: PersonCreate, db: DbSession, workspace: CurrentWorkspace
+    payload: PersonCreate, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> PersonOut:
     return PersonOut.model_validate(
         people_service.create_person(db, workspace, payload)
@@ -68,7 +72,11 @@ def get_person(
 
 @router.patch("/{person_id}", response_model=PersonOut)
 def update_person(
-    person_id: str, payload: PersonUpdate, db: DbSession, workspace: CurrentWorkspace
+    person_id: str,
+    payload: PersonUpdate,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> PersonOut:
     return PersonOut.model_validate(
         people_service.update_person(db, workspace, person_id, payload)
@@ -77,7 +85,7 @@ def update_person(
 
 @router.post("/{person_id}/archive", response_model=PersonOut)
 def archive_person(
-    person_id: str, db: DbSession, workspace: CurrentWorkspace
+    person_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> PersonOut:
     return PersonOut.model_validate(
         people_service.archive_person(db, workspace, person_id)
@@ -86,7 +94,7 @@ def archive_person(
 
 @router.post("/{person_id}/restore", response_model=PersonOut)
 def restore_person(
-    person_id: str, db: DbSession, workspace: CurrentWorkspace
+    person_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> PersonOut:
     return PersonOut.model_validate(
         people_service.restore_person(db, workspace, person_id)
@@ -111,7 +119,7 @@ def check_deletable(
 
 @router.delete("/{person_id}", response_model=OkResponse)
 def delete_person(
-    person_id: str, db: DbSession, workspace: CurrentWorkspace
+    person_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> OkResponse:
     people_service.delete_person(db, workspace, person_id)
     return OkResponse(message="Person deleted.")

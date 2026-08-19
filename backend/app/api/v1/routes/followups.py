@@ -6,7 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.core.deps import CurrentWorkspace, DbSession, SelectedPeople
+from app.core import permissions
+from app.core.deps import CurrentUser, CurrentWorkspace, DbSession, SelectedPeople
 from app.domains.followups import rules as followup_rules
 from app.domains.followups import service as followup_service
 from app.schemas.common import OkResponse
@@ -61,8 +62,12 @@ def get_suggestions(
 
 @router.post("", response_model=FollowUpOut, status_code=201)
 def create_follow_up(
-    payload: FollowUpCreate, db: DbSession, workspace: CurrentWorkspace
+    payload: FollowUpCreate,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> FollowUpOut:
+    permissions.require_application_edit(db, user, payload.application_id)
     follow_up = followup_service.create_follow_up(db, workspace, payload)
     return followup_service.hydrate_one(db, workspace, follow_up)
 
@@ -73,7 +78,9 @@ def update_follow_up(
     payload: FollowUpUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> FollowUpOut:
+    permissions.require_follow_up_edit(db, user, follow_up_id)
     follow_up = followup_service.update_follow_up(
         db, workspace, follow_up_id, payload
     )
@@ -82,8 +89,9 @@ def update_follow_up(
 
 @router.post("/{follow_up_id}/complete", response_model=FollowUpOut)
 def complete_follow_up(
-    follow_up_id: str, db: DbSession, workspace: CurrentWorkspace
+    follow_up_id: str, db: DbSession, workspace: CurrentWorkspace, user: CurrentUser
 ) -> FollowUpOut:
+    permissions.require_follow_up_edit(db, user, follow_up_id)
     follow_up = followup_service.complete_follow_up(db, workspace, follow_up_id)
     return followup_service.hydrate_one(db, workspace, follow_up)
 
@@ -103,7 +111,9 @@ def snooze_follow_up(
     payload: FollowUpSnooze,
     db: DbSession,
     workspace: CurrentWorkspace,
+    user: CurrentUser,
 ) -> FollowUpOut:
+    permissions.require_follow_up_edit(db, user, follow_up_id)
     follow_up = followup_service.snooze_follow_up(
         db, workspace, follow_up_id, until=payload.until, days=payload.days
     )
@@ -112,15 +122,17 @@ def snooze_follow_up(
 
 @router.post("/{follow_up_id}/cancel", response_model=FollowUpOut)
 def cancel_follow_up(
-    follow_up_id: str, db: DbSession, workspace: CurrentWorkspace
+    follow_up_id: str, db: DbSession, workspace: CurrentWorkspace, user: CurrentUser
 ) -> FollowUpOut:
+    permissions.require_follow_up_edit(db, user, follow_up_id)
     follow_up = followup_service.cancel_follow_up(db, workspace, follow_up_id)
     return followup_service.hydrate_one(db, workspace, follow_up)
 
 
 @router.delete("/{follow_up_id}", response_model=OkResponse)
 def delete_follow_up(
-    follow_up_id: str, db: DbSession, workspace: CurrentWorkspace
+    follow_up_id: str, db: DbSession, workspace: CurrentWorkspace, user: CurrentUser
 ) -> OkResponse:
+    permissions.require_follow_up_edit(db, user, follow_up_id)
     followup_service.delete_follow_up(db, workspace, follow_up_id)
     return OkResponse(message="Follow-up deleted.")

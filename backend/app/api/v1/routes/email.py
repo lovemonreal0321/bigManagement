@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import CurrentWorkspace, DbSession, SelectedPeople
+from app.core.deps import AdminUser, CurrentWorkspace, DbSession, SelectedPeople
 from app.core.errors import AppError
 from app.domains.ai import enrichment as ai_enrichment
 from app.domains.ai import service as ai_service
@@ -58,7 +58,10 @@ def suggest_imap(address: Annotated[str, Query()]) -> ImapHostSuggestion:
 
 @router.post("/accounts/imap", response_model=EmailAccountOut, status_code=201)
 def create_imap_account(
-    payload: ImapAccountCreate, db: DbSession, workspace: CurrentWorkspace
+    payload: ImapAccountCreate,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> EmailAccountOut:
     account = email_service.create_imap_account(db, workspace, payload)
     from app.models import Person
@@ -72,6 +75,7 @@ def update_account(
     payload: EmailAccountUpdate,
     db: DbSession,
     workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> EmailAccountOut:
     account = email_service.update_account(db, workspace, account_id, payload)
     from app.models import Person
@@ -81,7 +85,7 @@ def update_account(
 
 @router.post("/accounts/{account_id}/verify", response_model=EmailAccountOut)
 def verify_account(
-    account_id: str, db: DbSession, workspace: CurrentWorkspace
+    account_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> EmailAccountOut:
     account = email_service.verify_account(db, workspace, account_id)
     from app.models import Person
@@ -91,7 +95,7 @@ def verify_account(
 
 @router.delete("/accounts/{account_id}", response_model=OkResponse)
 def delete_account(
-    account_id: str, db: DbSession, workspace: CurrentWorkspace
+    account_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> OkResponse:
     email_service.delete_account(db, workspace, account_id)
     return OkResponse(message="Mailbox disconnected.")
@@ -104,7 +108,10 @@ def delete_account(
 
 @router.post("/oauth/google/start", response_model=OAuthStartOut)
 def start_gmail_oauth(
-    person_id: Annotated[str, Query()], db: DbSession, workspace: CurrentWorkspace
+    person_id: Annotated[str, Query()],
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> OAuthStartOut:
     return OAuthStartOut(
         authorization_url=email_service.gmail_authorization_url(db, workspace, person_id)
@@ -113,7 +120,10 @@ def start_gmail_oauth(
 
 @router.post("/oauth/microsoft/start", response_model=OAuthStartOut)
 def start_outlook_oauth(
-    person_id: Annotated[str, Query()], db: DbSession, workspace: CurrentWorkspace
+    person_id: Annotated[str, Query()],
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    admin: AdminUser,
 ) -> OAuthStartOut:
     return OAuthStartOut(
         authorization_url=email_service.outlook_authorization_url(
@@ -214,6 +224,7 @@ def enrich(
     db: DbSession,
     workspace: CurrentWorkspace,
     scope: SelectedPeople,
+    admin: AdminUser,
 ) -> EnrichSummary:
     """Read email for calendar events that look like interviews, and fill in
     the application and round from what it finds."""
@@ -229,7 +240,7 @@ def enrich(
 
 @ai_router.post("/extractions/{extraction_id}/undo", response_model=AiExtractionOut)
 def undo_extraction(
-    extraction_id: str, db: DbSession, workspace: CurrentWorkspace
+    extraction_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> AiExtractionOut:
     """Reverse exactly what this extraction created."""
     ai_enrichment.undo(db, workspace, extraction_id)
@@ -238,7 +249,7 @@ def undo_extraction(
 
 @ai_router.post("/extractions/{extraction_id}/apply", response_model=AiExtractionOut)
 def apply_extraction(
-    extraction_id: str, db: DbSession, workspace: CurrentWorkspace
+    extraction_id: str, db: DbSession, workspace: CurrentWorkspace, admin: AdminUser
 ) -> AiExtractionOut:
     """Accept a suggestion that fell below the auto-create threshold."""
     ai_enrichment.apply_suggestion(db, workspace, extraction_id)

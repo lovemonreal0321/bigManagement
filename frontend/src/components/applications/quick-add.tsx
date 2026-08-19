@@ -22,6 +22,7 @@ import {
   Textarea,
 } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { APPLICATION_STATUS_LABELS, todayIso } from "@/lib/format";
 import { usePersonFilter } from "@/lib/person-filter";
 import { useCreateApplication } from "@/lib/queries";
@@ -60,14 +61,25 @@ function QuickAddForm({
   defaultPersonId?: string;
   onDone: () => void;
 }) {
-  const { people, selectedIds } = usePersonFilter();
+  const { people: allPeople, selectedIds } = usePersonFilter();
+  const { canEdit } = useAuth();
+  // Only offer profiles this user may actually write to, so the form cannot
+  // be filled in and then refused at the last step.
+  const people = React.useMemo(
+    () => allPeople.filter((person) => canEdit(person.id)),
+    [allPeople, canEdit],
+  );
   const createApplication = useCreateApplication();
   const [expanded, setExpanded] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
-  // Defaults to the person the user is currently looking at.
-  const [personId, setPersonId] = React.useState(
-    () => defaultPersonId ?? selectedIds[0] ?? people[0]?.id ?? "",
-  );
+  // Defaults to the person the user is currently looking at, as long as they
+  // may edit them.
+  const [personId, setPersonId] = React.useState(() => {
+    const preferred = [defaultPersonId, ...selectedIds].find(
+      (id) => id && canEdit(id),
+    );
+    return preferred ?? people[0]?.id ?? "";
+  });
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -284,16 +296,22 @@ function QuickAddForm({
 export function QuickAddButton() {
   const [open, setOpen] = React.useState(false);
   const { people } = usePersonFilter();
+  const { canEdit } = useAuth();
+  const editable = people.filter((person) => canEdit(person.id));
 
   return (
     <>
       <Button
         variant="primary"
         size="sm"
-        disabled={people.length === 0}
+        disabled={editable.length === 0}
         onClick={() => setOpen(true)}
         title={
-          people.length === 0 ? "Add a person first" : "Add an application"
+          people.length === 0
+            ? "Add a person first"
+            : editable.length === 0
+              ? "You have no profiles assigned to you yet"
+              : "Add an application"
         }
       >
         <Plus />

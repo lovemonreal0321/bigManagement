@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/primitives";
 import { Tooltip } from "@/components/ui/overlays";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import {
   formatCountdown,
   formatDate,
@@ -120,6 +121,7 @@ export function UpcomingInterviewsCard({
   loading?: boolean;
   onMarkComplete: (interview: UpcomingInterview) => void;
 }) {
+  const { canEdit } = useAuth();
   return (
     <Card>
       <CardHeader
@@ -206,15 +208,17 @@ export function UpcomingInterviewsCard({
                     </a>
                   </Tooltip>
                 ) : null}
-                <Tooltip content="Record the result">
-                  <button
-                    type="button"
-                    onClick={() => onMarkComplete(interview)}
-                    className="rounded p-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-                  >
-                    <CheckCircle2 className="size-3.5" />
-                  </button>
-                </Tooltip>
+                {canEdit(interview.person_id) ? (
+                  <Tooltip content="Record the result">
+                    <button
+                      type="button"
+                      onClick={() => onMarkComplete(interview)}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+                    >
+                      <CheckCircle2 className="size-3.5" />
+                    </button>
+                  </Tooltip>
+                ) : null}
                 <Tooltip content="Open application">
                   <Link
                     href={`/applications/${interview.application_id}`}
@@ -243,6 +247,7 @@ export function AwaitingOutcomeCard({
   interviews: UpcomingInterview[];
   onRecord: (interview: UpcomingInterview) => void;
 }) {
+  const { canEdit } = useAuth();
   if (interviews.length === 0) return null;
 
   return (
@@ -274,9 +279,15 @@ export function AwaitingOutcomeCard({
                 {formatCountdown(interview.starts_at)}
               </p>
             </div>
-            <Button size="xs" variant="primary" onClick={() => onRecord(interview)}>
-              Record result
-            </Button>
+            {canEdit(interview.person_id) ? (
+              <Button
+                size="xs"
+                variant="primary"
+                onClick={() => onRecord(interview)}
+              >
+                Record result
+              </Button>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -303,6 +314,7 @@ export function NeedsAttentionCard({
   loading?: boolean;
   onAction: (action: string, item: AttentionItem) => void;
 }) {
+  const { canEdit } = useAuth();
   const ACTION_LABELS: Record<string, string> = {
     complete: "Mark done",
     snooze: "Snooze",
@@ -384,7 +396,7 @@ export function NeedsAttentionCard({
                     <Button key={action} asChild size="xs" variant="ghost">
                       <Link href="/calendar">Open calendar</Link>
                     </Button>
-                  ) : (
+                  ) : !canEdit(item.person_id) ? null : (
                     <Button
                       key={action}
                       size="xs"
@@ -593,6 +605,7 @@ export function SuggestionsCard({
   followUpSuggestions: FollowUpSuggestion[];
   onLinkEvent: (suggestion: InterviewSuggestion) => void;
 }) {
+  const { canEdit } = useAuth();
   const dismiss = useDismissSuggestion();
   const createFollowUp = useCreateFollowUp();
 
@@ -645,23 +658,25 @@ export function SuggestionsCard({
                 </p>
               </div>
             </div>
-            <div className="mt-2 flex flex-wrap gap-1 pl-6">
-              <Button
-                size="xs"
-                variant="primary"
-                onClick={() => onLinkEvent(suggestion)}
-              >
-                <Link2 />
-                Review
-              </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => dismiss.mutate(suggestion.event_id)}
-              >
-                Ignore
-              </Button>
-            </div>
+            {canEdit(suggestion.person_id) ? (
+              <div className="mt-2 flex flex-wrap gap-1 pl-6">
+                <Button
+                  size="xs"
+                  variant="primary"
+                  onClick={() => onLinkEvent(suggestion)}
+                >
+                  <Link2 />
+                  Review
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => dismiss.mutate(suggestion.event_id)}
+                >
+                  Ignore
+                </Button>
+              </div>
+            ) : null}
           </li>
         ))}
 
@@ -681,14 +696,16 @@ export function SuggestionsCard({
               </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-1 pl-6">
-              <Button
-                size="xs"
-                variant="primary"
-                loading={createFollowUp.isPending}
-                onClick={() => void acceptFollowUp(suggestion)}
-              >
-                Create follow-up
-              </Button>
+              {canEdit(suggestion.person_id) ? (
+                <Button
+                  size="xs"
+                  variant="primary"
+                  loading={createFollowUp.isPending}
+                  onClick={() => void acceptFollowUp(suggestion)}
+                >
+                  Create follow-up
+                </Button>
+              ) : null}
               <Button asChild size="xs" variant="ghost">
                 <Link href={`/applications/${suggestion.application_id}`}>
                   Open application

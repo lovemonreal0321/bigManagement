@@ -9,12 +9,16 @@ import {
   Settings as SettingsIcon,
   Sparkles,
   Trash2,
+  UserCircle,
+  Users,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { AccountSettings } from "@/components/settings/account-settings";
 import { EmailSettings } from "@/components/settings/email-settings";
+import { UserSettings } from "@/components/settings/user-settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { PersonAvatar } from "@/components/shared/badges";
 import {
@@ -36,6 +40,7 @@ import {
   Skeleton,
 } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatCountdown } from "@/lib/format";
 import { timezoneOptions } from "@/lib/timezones";
 import {
@@ -52,6 +57,7 @@ import {
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
+  const { isAdmin } = useAuth();
   // Landing back from a Gmail OAuth round-trip should open the Email tab, so
   // the initial value is derived from the query string rather than set later.
   const [tab, setTab] = React.useState(() =>
@@ -89,33 +95,61 @@ export default function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        description="Calendar connections, timezones and automation thresholds."
+        description={
+          isAdmin
+            ? "Calendar connections, timezones, users and automation thresholds."
+            : "Your account. Workspace settings are managed by an administrator."
+        }
       />
 
-      <Tabs value={tab} onValueChange={setTab}>
+      {/* A general user only gets their own account here. The rest is hidden
+          rather than shown-and-refused, so nothing on screen is a dead end. */}
+      <Tabs value={isAdmin ? tab : "account"} onValueChange={setTab}>
         <TabsList className="mb-4">
-          <TabsTrigger value="calendars">
-            <CalendarDays className="mr-1 inline size-3.5" />
-            Calendars
-          </TabsTrigger>
-          <TabsTrigger value="email">
-            <Sparkles className="mr-1 inline size-3.5" />
-            Email &amp; AI
-          </TabsTrigger>
-          <TabsTrigger value="workspace">
-            <SettingsIcon className="mr-1 inline size-3.5" />
-            Workspace
+          {isAdmin ? (
+            <>
+              <TabsTrigger value="calendars">
+                <CalendarDays className="mr-1 inline size-3.5" />
+                Calendars
+              </TabsTrigger>
+              <TabsTrigger value="email">
+                <Sparkles className="mr-1 inline size-3.5" />
+                Email &amp; AI
+              </TabsTrigger>
+              <TabsTrigger value="users">
+                <Users className="mr-1 inline size-3.5" />
+                Users
+              </TabsTrigger>
+              <TabsTrigger value="workspace">
+                <SettingsIcon className="mr-1 inline size-3.5" />
+                Workspace
+              </TabsTrigger>
+            </>
+          ) : null}
+          <TabsTrigger value="account">
+            <UserCircle className="mr-1 inline size-3.5" />
+            My account
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="calendars">
-          <CalendarSettings />
-        </TabsContent>
-        <TabsContent value="email">
-          <EmailSettings />
-        </TabsContent>
-        <TabsContent value="workspace">
-          <WorkspaceSettings />
+        {isAdmin ? (
+          <>
+            <TabsContent value="calendars">
+              <CalendarSettings />
+            </TabsContent>
+            <TabsContent value="email">
+              <EmailSettings />
+            </TabsContent>
+            <TabsContent value="users">
+              <UserSettings />
+            </TabsContent>
+            <TabsContent value="workspace">
+              <WorkspaceSettings />
+            </TabsContent>
+          </>
+        ) : null}
+        <TabsContent value="account">
+          <AccountSettings />
         </TabsContent>
       </Tabs>
     </div>

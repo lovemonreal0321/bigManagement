@@ -41,7 +41,9 @@ import {
   Skeleton,
   Textarea,
 } from "@/components/ui/primitives";
+import { ReadOnlyNote } from "@/components/shared/read-only";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import {
   APPLICATION_STATUS_LABELS,
   EMPLOYMENT_TYPE_LABELS,
@@ -71,6 +73,11 @@ export default function ApplicationDetailPage() {
     useApplication(applicationId);
   const { data: settings } = useSettings();
   const { data: connections } = useCalendarConnections();
+
+  // A user who does not look after this person sees the whole record but
+  // gets no edit controls, matching what the server would allow.
+  const { canEdit: canEditPerson } = useAuth();
+  const canEdit = canEditPerson(application?.person_id);
 
   const changeStatus = useChangeApplicationStatus();
   const archive = useArchiveApplication();
@@ -235,6 +242,7 @@ export default function ApplicationDetailPage() {
                 value={application.status}
                 aria-label="Application status"
                 className="h-8 w-44 text-xs"
+                disabled={!canEdit}
                 onChange={async (event) => {
                   try {
                     await changeStatus.mutateAsync({
@@ -258,6 +266,7 @@ export default function ApplicationDetailPage() {
                 ))}
               </NativeSelect>
 
+              {canEdit ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="icon-sm" variant="secondary" aria-label="More">
@@ -288,6 +297,9 @@ export default function ApplicationDetailPage() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              ) : (
+                <ReadOnlyNote />
+              )}
             </div>
           </div>
         </CardBody>
@@ -300,17 +312,19 @@ export default function ApplicationDetailPage() {
             title="Interview journey"
             description="Every step from application to outcome."
             action={
-              <Button
-                size="xs"
-                variant="primary"
-                onClick={() => {
-                  setEditingStage(null);
-                  setStageDialogOpen(true);
-                }}
-              >
-                <Plus />
-                Add interview
-              </Button>
+              canEdit ? (
+                <Button
+                  size="xs"
+                  variant="primary"
+                  onClick={() => {
+                    setEditingStage(null);
+                    setStageDialogOpen(true);
+                  }}
+                >
+                  <Plus />
+                  Add interview
+                </Button>
+              ) : null
             }
           />
           <CardBody>
@@ -319,16 +333,18 @@ export default function ApplicationDetailPage() {
                 title="No interviews recorded yet"
                 description="Add the first round — a recruiter screen, a technical, whatever happened."
                 action={
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={() => {
-                      setEditingStage(null);
-                      setStageDialogOpen(true);
-                    }}
-                  >
-                    Add interview
-                  </Button>
+                  canEdit ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => {
+                        setEditingStage(null);
+                        setStageDialogOpen(true);
+                      }}
+                    >
+                      Add interview
+                    </Button>
+                  ) : null
                 }
               />
             ) : (
@@ -336,12 +352,16 @@ export default function ApplicationDetailPage() {
                 appliedDate={application.applied_date}
                 stages={application.stages}
                 tz={settings?.default_timezone}
-                onEdit={(stage) => {
-                  setEditingStage(stage);
-                  setStageDialogOpen(true);
-                }}
-                onRecordOutcome={setOutcomeStage}
-                onDelete={async (stage) => {
+                onEdit={
+                  canEdit
+                    ? (stage) => {
+                        setEditingStage(stage);
+                        setStageDialogOpen(true);
+                      }
+                    : undefined
+                }
+                onRecordOutcome={canEdit ? setOutcomeStage : undefined}
+                onDelete={!canEdit ? undefined : async (stage) => {
                   try {
                     await deleteStage.mutateAsync(stage.id);
                     toast.success("Interview removed");
@@ -364,14 +384,16 @@ export default function ApplicationDetailPage() {
             <CardHeader
               title="Follow-ups"
               action={
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => setFollowUpOpen(true)}
-                >
-                  <Plus />
-                  Add
-                </Button>
+                canEdit ? (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setFollowUpOpen(true)}
+                  >
+                    <Plus />
+                    Add
+                  </Button>
+                ) : null
               }
             />
             {applicationFollowUps.length === 0 ? (
@@ -394,6 +416,7 @@ export default function ApplicationDetailPage() {
                       </div>
                       <FollowUpBadge status={followUp.computed_status} />
                     </div>
+                    {canEdit ? (
                     <div className="mt-1.5 flex gap-1">
                       <Button
                         size="xs"
@@ -421,6 +444,7 @@ export default function ApplicationDetailPage() {
                         Snooze 3d
                       </Button>
                     </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -437,6 +461,7 @@ export default function ApplicationDetailPage() {
                 </p>
               ) : null}
 
+              {canEdit ? (
               <form onSubmit={handleAddNote} className="space-y-2">
                 <Textarea
                   rows={2}
@@ -454,6 +479,7 @@ export default function ApplicationDetailPage() {
                   Add note
                 </Button>
               </form>
+              ) : null}
 
               {application.notes_log.length > 0 ? (
                 <ul className="space-y-2 border-t border-border pt-2">

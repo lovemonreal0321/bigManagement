@@ -8,6 +8,7 @@ from fastapi import Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import permissions
 from app.core.database import get_db
 from app.core.errors import AuthError
 from app.core.security import decode_access_token
@@ -36,10 +37,24 @@ def get_current_user(request: Request, db: DbSession) -> User:
     user = db.get(User, claims.get("sub", ""))
     if user is None:
         raise AuthError("Your session is no longer valid.", code="unknown_user")
+    if not user.is_active:
+        # Disabling an account takes effect on the next request rather than
+        # waiting for an unexpired token to lapse.
+        raise AuthError(
+            "That account has been disabled.", code="account_disabled"
+        )
     return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def get_admin_user(user: CurrentUser) -> User:
+    """Guard for endpoints only an administrator may reach."""
+    return permissions.require_admin(user)
+
+
+AdminUser = Annotated[User, Depends(get_admin_user)]
 
 
 def get_current_workspace(db: DbSession, user: CurrentUser) -> Workspace:
