@@ -38,11 +38,15 @@ from app.schemas.application import (
     ApplicationDetail,
     ApplicationNoteOut,
     ApplicationOut,
+    ApplicationSheet,
     ApplicationUpdate,
     NextInterviewSummary,
     PipelineCard,
     PipelineColumnOut,
     PipelineOut,
+    SheetDay,
+    SheetRow,
+    SheetTab,
 )
 from app.schemas.person import PersonOut
 
@@ -411,6 +415,144 @@ def build_pipeline(
         for column in PipelineColumn
     ]
     return PipelineOut(columns=columns, total=len(decorated))
+
+
+# --------------------------------------------------------------------------
+# Sheet view
+# --------------------------------------------------------------------------
+
+
+def _day_label(day: date | None) -> str:
+    """`Tue 19 Aug 2026`, or a name for the undated bucket.
+
+    Built by hand rather than with `%-d`, which is a glibc extension and raises
+    on Windows — where this app is also run.
+    """
+    if day is None:
+        return "No date recorded"
+    return f"{day.strftime('%a')} {day.day} {day.strftime('%b')} {day.year}"
+
+
+def build_sheet(
+    db: Session,
+    workspace: Workspace,
+    *,
+    people: list[Person],
+    person_id: str | None,
+    editable_person_ids: set[str] | None,
+    search: str | None = None,
+    include_archived: bool = False,
+) -> ApplicationSheet:
+    """One person's applications as a spreadsheet, grouped by the day applied.
+
+    Grouping happens here rather than in the browser because `applied_date` is
+    already anchored to the person's own timezone (see `create_application`).
+    Regrouping client-side would re-date every row into whatever zone the
+    viewer's laptop happens to be in.
+
+    Every row for the person is returned. A job search does not reach a size
+    where a spreadsheet needs paging, and a partially filled one would make the
+    per-day counts wrong — which is the whole point of the view.
+    """
+    def can_edit(pid: str) -> bool:
+        return editable_person_ids is None or pid in editable_person_ids
+
+    # Totals per tab ignore the search, so the tab bar does not reshuffle while
+    # the user is typing.
+    totals = dict(
+        db.execute(
+            select(Application.person_id, func.count(Application.id))
+            .where(
+                Application.workspace_id == workspace.id,
+                Application.person_id.in_([p.id for p in people] or [""]),
+                *(() if include_archived else (Application.archived_at.is_(None),)),
+            )
+            .group_by(Application.person_id)
+        ).all()
+    )
+
+    tabs = [
+        SheetTab(
+            person_id=person.id,
+            name=person.display_name,
+            initials=person.initials,
+            color=person.color,
+            total=totals.get(person.id, 0),
+            can_edit=can_edit(person.id),
+        )
+        for person in people
+    ]
+
+    # Default to the first tab, and ignore an id that is not on the bar.
+    known = {person.id for person in people}
+    active = person_id if person_id in known else (people[0].id if people else None)
+    if active is None:
+        return ApplicationSheet(
+            tabs=[], person_id=None, can_edit=False, days=[], matched=0, total=0
+        )
+
+    filters = ApplicationFilters(
+        person_ids=[active],
+        search=search or None,
+        include_archived=include_archived,
+        sort="applied_date",
+    )
+    stmt = _apply_filters(
+        select(Application).where(Application.workspace_id == workspace.id),
+        filters,
+        utcnow(),
+    )
+    # Newest day first; within a day, most recently touched first, so a row
+    # just added or edited surfaces at the top of its group.
+    rows = list(
+        db.scalars(
+            stmt.order_by(
+                Application.applied_date.desc().nullslast(),
+                Application.last_activity_at.desc(),
+            )
+        ).unique()
+    )
+
+    grouped: dict[date | None, list[SheetRow]] = {}
+    for application in rows:
+        grouped.setdefault(application.applied_date, []).append(
+            SheetRow(
+                id=application.id,
+                person_id=application.person_id,
+                applied_date=application.applied_date,
+                company_name=application.company_name,
+                job_title=application.job_title,
+                job_url=application.job_url,
+                status=application.status,
+                is_archived=application.archived_at is not None,
+            )
+        )
+
+    # Newest day first, with the undated bucket pinned to the bottom rather
+    # than sorting as if it were the oldest.
+    ordered = sorted(
+        grouped.items(),
+        key=lambda kv: (kv[0] is not None, kv[0] or date.min),
+        reverse=True,
+    )
+    days = [
+        SheetDay(date=day, label=_day_label(day), count=len(items), rows=items)
+        for day, items in ordered
+    ]
+
+    dated = [day for day in days if day.date is not None]
+    busiest = max(dated, key=lambda d: (d.count, d.date), default=None)
+
+    return ApplicationSheet(
+        tabs=tabs,
+        person_id=active,
+        can_edit=can_edit(active),
+        days=days,
+        matched=len(rows),
+        total=totals.get(active, 0),
+        busiest_day=busiest.date if busiest else None,
+        busiest_day_count=busiest.count if busiest else 0,
+    )
 
 
 # --------------------------------------------------------------------------

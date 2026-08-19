@@ -886,3 +886,47 @@ export interface AiStatus {
   email_accounts: number;
   setup_hint: string | null;
 }
+
+// --------------------------------------------------------------------------
+// Sheet view
+// --------------------------------------------------------------------------
+
+export interface SheetRow {
+  id: string;
+  person_id: string;
+  applied_date: string | null;
+  company_name: string;
+  job_title: string;
+  job_url: string | null;
+  status: ApplicationStatus;
+  is_archived: boolean;
+}
+
+export interface SheetDay {
+  /** `null` is the "no date recorded" bucket, pinned to the bottom. */
+  date: string | null;
+  label: string;
+  count: number;
+  rows: SheetRow[];
+}
+
+export interface SheetTab {
+  person_id: string;
+  name: string;
+  initials: string;
+  color: string;
+  total: number;
+  can_edit: boolean;
+}
+
+export interface ApplicationSheet {
+  tabs: SheetTab[];
+  person_id: string | null;
+  can_edit: boolean;
+  days: SheetDay[];
+  /** Rows after the search; `total` ignores it, so the tabs hold still. */
+  matched: number;
+  total: number;
+  busiest_day: string | null;
+  busiest_day_count: number;
+}

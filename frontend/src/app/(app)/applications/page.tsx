@@ -1,12 +1,21 @@
 "use client";
 
-import { Briefcase, Filter, LayoutGrid, List, Search, X } from "lucide-react";
+import {
+  Briefcase,
+  Filter,
+  LayoutGrid,
+  List,
+  Search,
+  Table2,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as React from "react";
 
 import { PipelineBoard } from "@/components/applications/pipeline-board";
 import { QuickAddDialog } from "@/components/applications/quick-add";
+import { SheetView } from "@/components/applications/sheet-view";
 import {
   PersonAvatar,
   PriorityBadge,
@@ -44,6 +53,7 @@ import {
   useFilterOptions,
   useInterviewTypes,
   usePipeline,
+  useSheet,
 } from "@/lib/queries";
 import {
   APPLICATION_STATUSES,
@@ -51,7 +61,9 @@ import {
   type Application,
 } from "@/lib/types";
 
-type ViewMode = "list" | "pipeline";
+type ViewMode = "list" | "pipeline" | "sheet";
+
+const VIEW_MODES: ViewMode[] = ["list", "pipeline", "sheet"];
 
 export default function ApplicationsPage() {
   const searchParams = useSearchParams();
@@ -59,9 +71,16 @@ export default function ApplicationsPage() {
   const { data: filterOptions } = useFilterOptions();
   const { data: types } = useInterviewTypes();
 
-  const [view, setView] = React.useState<ViewMode>(
-    searchParams.get("view") === "pipeline" ? "pipeline" : "list",
-  );
+  const [view, setView] = React.useState<ViewMode>(() => {
+    const requested = searchParams.get("view") as ViewMode | null;
+    return requested && VIEW_MODES.includes(requested) ? requested : "list";
+  });
+
+  // The sheet keeps its own person and search: its tabs are the person picker,
+  // and its search box narrows one sheet rather than the whole list.
+  const [sheetPerson, setSheetPerson] = React.useState<string | null>(null);
+  const [sheetSearch, setSheetSearch] = React.useState("");
+  const [sheetDebounced, setSheetDebounced] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [debounced, setDebounced] = React.useState("");
   const [statuses, setStatuses] = React.useState<string[]>(() => {
@@ -107,6 +126,13 @@ export default function ApplicationsPage() {
   const list = useApplications(queryIds, filters);
   const pipeline = usePipeline(queryIds, debounced);
 
+  React.useEffect(() => {
+    const timer = setTimeout(() => setSheetDebounced(sheetSearch), 200);
+    return () => clearTimeout(timer);
+  }, [sheetSearch]);
+
+  const sheet = useSheet(queryIds, sheetPerson, sheetDebounced);
+
   const activeFilterCount =
     statuses.length +
     columns.length +
@@ -146,9 +172,11 @@ export default function ApplicationsPage() {
         description={
           view === "pipeline"
             ? "Drag a card to change its stage."
-            : `${list.data?.total ?? 0} application${
-                list.data?.total === 1 ? "" : "s"
-              }`
+            : view === "sheet"
+              ? "One sheet per person. Type into a cell to edit it, or into the blank row to add an application."
+              : `${list.data?.total ?? 0} application${
+                  list.data?.total === 1 ? "" : "s"
+                }`
         }
         actions={
           <>
@@ -164,6 +192,10 @@ export default function ApplicationsPage() {
                 <TabsTrigger value="pipeline">
                   <LayoutGrid className="mr-1 inline size-3.5" />
                   Pipeline
+                </TabsTrigger>
+                <TabsTrigger value="sheet">
+                  <Table2 className="mr-1 inline size-3.5" />
+                  Sheet
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -301,7 +333,27 @@ export default function ApplicationsPage() {
         </div>
       </PageHeader>
 
-      {view === "pipeline" ? (
+      {view === "sheet" ? (
+        sheet.isError ? (
+          <Card>
+            <ErrorState
+              message={
+                sheet.error instanceof ApiError ? sheet.error.message : undefined
+              }
+              onRetry={() => sheet.refetch()}
+            />
+          </Card>
+        ) : (
+          <SheetView
+            sheet={sheet.data}
+            loading={sheet.isLoading}
+            personId={sheetPerson ?? sheet.data?.person_id ?? null}
+            onPersonChange={setSheetPerson}
+            search={sheetSearch}
+            onSearchChange={setSheetSearch}
+          />
+        )
+      ) : view === "pipeline" ? (
         pipeline.isError ? (
           <Card>
             <ErrorState

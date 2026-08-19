@@ -179,3 +179,60 @@ class PipelineColumnOut(BaseModel):
 class PipelineOut(BaseModel):
     columns: list[PipelineColumnOut]
     total: int
+
+
+# --------------------------------------------------------------------------
+# Sheet view
+#
+# A deliberately narrow projection: the spreadsheet shows date, company and the
+# job link, and nothing else. Everything richer lives on the detail page.
+# --------------------------------------------------------------------------
+
+
+class SheetRow(ORMModel):
+    id: str
+    person_id: str
+    applied_date: date | None
+    company_name: str
+    #: Not a column in the sheet, but carried so the UI can show it on hover and
+    #: so a row created here can be given a real title later.
+    job_title: str
+    job_url: str | None
+    status: str
+    is_archived: bool = False
+
+
+class SheetDay(BaseModel):
+    """One day's worth of rows, plus the count the user asked to see."""
+
+    #: `None` groups applications with no recorded date, which would otherwise
+    #: vanish from a date-grouped view.
+    date: date | None
+    label: str
+    count: int
+    rows: list[SheetRow]
+
+
+class SheetTab(BaseModel):
+    """One person = one sheet tab."""
+
+    person_id: str
+    name: str
+    initials: str
+    color: str
+    total: int
+    #: Whether this viewer may type into this person's sheet.
+    can_edit: bool
+
+
+class ApplicationSheet(BaseModel):
+    tabs: list[SheetTab]
+    person_id: str | None
+    can_edit: bool
+    days: list[SheetDay]
+    #: Rows shown, after any search. `total` ignores the search, so the UI can
+    #: say "12 of 47".
+    matched: int
+    total: int
+    busiest_day: date | None = None
+    busiest_day_count: int = 0

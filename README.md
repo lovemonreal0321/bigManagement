@@ -185,6 +185,36 @@ a newly added person is included automatically instead of being invisible until
 you re-select. The choice persists in `localStorage`, and ids for archived or
 deleted people are dropped on read.
 
+### Applications: three views
+
+**List** filters and sorts, **Pipeline** is the drag-and-drop Kanban, and
+**Sheet** is a spreadsheet.
+
+The sheet is deliberately narrow — one tab per person along the bottom, and
+three columns: **date**, **company**, and the **job description link**. Rows sit
+under a day band that states how many applications went out that day, newest
+day first, so "how much did I apply this week" is answered by scrolling rather
+than by opening analytics.
+
+- **Type into a cell to change it.** `Enter` saves and moves down, `Tab` saves
+  and moves right, `Esc` cancels. Each cell saves on its own, so a mistyped
+  link never blocks a company rename.
+- **Type into the blank bottom row to add an application.** A company name is
+  the only thing required; the date defaults to today *in that person's
+  timezone*, and the job title is filled in as "Untitled role" for you to name
+  later on the detail page.
+- **Search narrows one sheet** as you type — company, job title, notes or
+  person. The day counts follow the search, so the numbers always describe
+  what is on screen. Tab totals ignore it, so the tab bar holds still while you
+  type.
+- Rows a general user may not edit render as plain text with a **View only**
+  marker; the tab for that person still opens, because reading is unrestricted
+  (see [Roles and access](#roles-and-access)).
+
+Day grouping happens on the server rather than in the browser, because
+`applied_date` is anchored to the *person's* timezone. Regrouping client-side
+would re-date every row into whatever zone the viewer's laptop is in.
+
 ### Calendar is the source of truth
 
 When a synced event moves, the interview linked to it moves with it, and the

@@ -13,6 +13,7 @@ import { api, type QueryValue } from "./api";
 import type {
   Activity,
   AiExtraction,
+  ApplicationSheet,
   AuthUser,
   AiStatus,
   Analytics,
@@ -83,6 +84,8 @@ export const queryKeys = {
   activity: (personIds: PersonIds, applicationId?: string) =>
     ["activity", scope(personIds), applicationId ?? "all"] as const,
   users: ["users"] as const,
+  sheet: (personIds: PersonIds, personId: string | null, search: string, archived: boolean) =>
+    ["applications", "sheet", scope(personIds), personId ?? "first", search, archived] as const,
 };
 
 /** Invalidate everything that can be affected by a write. */
@@ -202,6 +205,27 @@ export function usePipeline(personIds: PersonIds, search = "") {
         ...personParams(personIds),
         q: search || undefined,
       }),
+  });
+}
+
+export function useSheet(
+  personIds: PersonIds,
+  personId: string | null,
+  search = "",
+  includeArchived = false,
+) {
+  return useQuery({
+    queryKey: queryKeys.sheet(personIds, personId, search, includeArchived),
+    queryFn: () =>
+      api.get<ApplicationSheet>("/applications/sheet", {
+        person_ids: personIds,
+        person_id: personId ?? undefined,
+        q: search || undefined,
+        include_archived: includeArchived || undefined,
+      }),
+    // Keep the previous grid on screen while a keystroke re-queries, so the
+    // sheet does not blank out on every letter typed.
+    placeholderData: (previous) => previous,
   });
 }
 

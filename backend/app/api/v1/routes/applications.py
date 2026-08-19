@@ -17,6 +17,7 @@ from app.schemas.application import (
     ApplicationNoteCreate,
     ApplicationNoteOut,
     ApplicationOut,
+    ApplicationSheet,
     ApplicationStatusUpdate,
     ApplicationUpdate,
     PipelineOut,
@@ -121,6 +122,34 @@ def get_pipeline(
         person_ids=scope.ids, search=q, include_archived=include_archived
     )
     return app_service.build_pipeline(db, workspace, filters)
+
+
+@router.get("/sheet", response_model=ApplicationSheet)
+def get_sheet(
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    scope: SelectedPeople,
+    user: CurrentUser,
+    person_id: str | None = None,
+    q: str | None = Query(
+        None, description="Substring match on company, job title, notes or person"
+    ),
+    include_archived: bool = False,
+) -> ApplicationSheet:
+    """The spreadsheet view: one tab per person, rows grouped by day applied.
+
+    The tab bar follows the global person filter, so selecting people upstream
+    narrows which sheets are on offer; `person_id` then picks the open one.
+    """
+    return app_service.build_sheet(
+        db,
+        workspace,
+        people=scope.people,
+        person_id=person_id,
+        editable_person_ids=permissions.editable_person_ids(user),
+        search=q,
+        include_archived=include_archived,
+    )
 
 
 @router.get("/filter-options")
