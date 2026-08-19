@@ -85,15 +85,29 @@ class Settings(BaseSettings):
     #: would reject an ordinary comma-separated list before any validator ran.
     cors_origins: str = "http://localhost:3100,http://127.0.0.1:3100"
 
-    #: Also accept browsers on the same private network (192.168.x, 10.x,
-    #: 172.16-31.x). Without this, a teammate opening the app at
+    #: Also accept browsers reaching the app over a local network, rather than
+    #: only `localhost`. Without this, a teammate opening
     #: http://192.168.3.20:3100 is blocked by CORS and the page spins forever,
     #: and the fix would otherwise be to hard-code an address that changes with
     #: every DHCP lease.
     #:
-    #: Only private ranges are matched, never a public address. Turn it off if
-    #: the server is ever exposed beyond a trusted LAN.
+    #: "Local" is wider than RFC 1918, because the address a machine actually
+    #: answers on is often handed out by something else: Tailscale uses CGNAT
+    #: (100.64/10), and VPN clients like Cloudflare WARP and Zscaler, as well as
+    #: VM NAT, commonly use the benchmarking range 198.18/15. See
+    #: `cors_origin_regex` for the full list. Routable public addresses are
+    #: never matched.
     cors_allow_private_network: bool = True
+
+    #: Last resort for a network none of the above covers. Reflects whatever
+    #: origin asks, so only turn it on when the server is reachable solely by
+    #: people you trust.
+    #:
+    #: Sessions are bearer tokens in localStorage rather than cookies, so a
+    #: foreign origin cannot ride along on an existing session the way it could
+    #: with cookie auth — but it still lets any page that knows the address
+    #: talk to the API, so leave this off unless something is genuinely broken.
+    cors_allow_any_origin: bool = False
 
     # -- workspace defaults ------------------------------------------------
     workspace_name: str = "Job Search Command Center"
@@ -167,20 +181,35 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_regex(self) -> str | None:
-        """Matches any private-network origin, on any port.
+        """Matches any origin on a local network, on any port.
 
-        `192.168.x.x`, `10.x.x.x`, `172.16-31.x.x` and `*.local`, so a teammate
-        on the LAN is allowed without anyone editing `.env` when the router
-        hands out a different address.
+        Covers the ranges a machine on a home, office or VPN network actually
+        answers on:
+
+        * `10/8`, `172.16/12`, `192.168/16` — RFC 1918, ordinary LANs
+        * `100.64/10` — CGNAT, which is what Tailscale hands out
+        * `198.18/15` — RFC 2544 benchmarking, used by Cloudflare WARP,
+          Zscaler and some VM NAT setups
+        * `169.254/16` — link-local, when DHCP has not answered
+        * `127.x` and `*.local` / `*.lan` / `*.home` / `*.internal` hostnames
+
+        Deliberately not a general "allow anything": a routable public address
+        never matches. `cors_allow_any_origin` is the escape hatch for a
+        network none of this covers.
         """
         if not self.cors_allow_private_network:
             return None
         return (
             r"^https?://("
-            r"192\.168\.\d{1,3}\.\d{1,3}"
-            r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+            r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
             r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
-            r"|[A-Za-z0-9-]+\.local"
+            r"|192\.168\.\d{1,3}\.\d{1,3}"
+            r"|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}"
+            r"|198\.(18|19)\.\d{1,3}\.\d{1,3}"
+            r"|169\.254\.\d{1,3}\.\d{1,3}"
+            r"|127\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+            r"|\[::1\]"
+            r"|[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.(local|lan|home|internal)"
             r")(:\d+)?$"
         )
 

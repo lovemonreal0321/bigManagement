@@ -52,11 +52,16 @@ npm run dev
 ```
 
 The port (3100) is baked into the script, because the backend's `CORS_ORIGINS`
-expects it. On Windows, if `next dev` exits without printing an error, use the
-webpack fallback instead — Turbopack does not get on with every setup:
+expects it. Both scripts bind `0.0.0.0` so another machine on the network can
+reach them.
+
+Turbopack does not get on with every setup. If `next dev` or `next build` exits
+without printing an error — common on Windows — use the webpack fallback, which
+builds the same output more slowly:
 
 ```bash
-npm run dev:webpack
+npm run dev:webpack      # instead of npm run dev
+npm run build:webpack    # instead of npm run build
 ```
 
 Open <http://localhost:3100> and sign in:
@@ -482,7 +487,8 @@ commented list).
 | `AUTO_MIGRATE` | `true` | Apply migrations on startup |
 | `PORT` | `8100` | Backend port |
 | `CORS_ORIGINS` | `http://localhost:3100,…` | Comma-separated allowed origins |
-| `CORS_ALLOW_PRIVATE_NETWORK` | `true` | Also accept browsers on the same LAN (192.168.x, 10.x, 172.16–31.x, `*.local`). Never matches a public address |
+| `CORS_ALLOW_PRIVATE_NETWORK` | `true` | Also accept browsers on a local network — RFC 1918, Tailscale CGNAT, VPN benchmarking range, link-local, `*.local`/`*.lan`/`*.home`/`*.internal`. Never matches a public address |
+| `CORS_ALLOW_ANY_ORIGIN` | `false` | Escape hatch for a network none of the above covers. Accepts every origin — only for a network you control |
 | `SYNC_WINDOW_PAST_DAYS` / `SYNC_WINDOW_FUTURE_DAYS` | `30` / `90` | Calendar import window |
 | `SYNC_INTERVAL_MINUTES` | `15` | Background sync cadence (`ENABLE_SCHEDULER=false` disables) |
 | `FOLLOWUP_AFTER_INTERVIEW_BUSINESS_DAYS` | `3` | Suggested follow-up delay |
@@ -549,8 +555,11 @@ unwritable, or if you run multiple backend processes with different explicit
 disagree about the port. `npm run dev` serves 3100 and the backend allows 3100;
 if you change one, change the other in `backend/.env`.
 
-**`next dev` exits with no message (Windows).** Use `npm run dev:webpack`.
-Also check `node -v` — Next 16 needs 20.9 or newer.
+**`next dev` or `next build` exits immediately with no message (Windows).**
+Turbopack. Use `npm run dev:webpack` and `npm run build:webpack`; both produce
+the same app, just more slowly. Also check `node -v` — Next 16 needs 20.9 or
+newer — and if the build is what fails, watch memory: webpack builds of this
+app peak around 2 GB.
 
 **API calls fail only on Windows.** Windows resolves `localhost` to IPv6
 (`::1`) first, so a backend bound to `--host 127.0.0.1` is unreachable. Bind
@@ -576,8 +585,15 @@ If the page loads but spins forever, it is almost always one of:
 | --- | --- |
 | Page never appears at all | Firewall. Allow TCP 3100 and 8100 — on Windows, "Allow an app through Windows Firewall" for Node and Python, and answer *Private networks*. |
 | Page renders, then spins | The backend is bound to `127.0.0.1` rather than `0.0.0.0`, so only the host machine can reach port 8100. |
-| Spins, console shows CORS | `CORS_ALLOW_PRIVATE_NETWORK=false`, or the visitor is not on a private range. Add their origin to `CORS_ORIGINS`. |
+| Spins, console shows a CORS error | An address outside the ranges above. Add that exact origin to `CORS_ORIGINS`, or set `CORS_ALLOW_ANY_ORIGIN=true` if the network is one you trust. |
 | Works on the host, not elsewhere | The two machines are on different subnets, or the network has client isolation (common on guest Wi-Fi). |
+| `WebSocket connection to ws://…/_next/hmr failed`, repeatedly | Harmless. That is the dev server's hot-reload channel, which some VPNs and proxies block; it does not affect the app. It disappears entirely in production mode — which is the better way to run a shared instance anyway. |
+
+The allowed ranges are wider than RFC 1918, because the address a machine
+answers on is often not handed out by your router: Tailscale uses CGNAT
+(`100.64/10`), and Cloudflare WARP, Zscaler and VM NAT commonly use the
+benchmarking range `198.18/15`. Check what address the visitor actually typed —
+it is frequently not the `192.168.x.x` you expect.
 
 Setting `NEXT_PUBLIC_API_URL` to a **non**-loopback address still wins, so a
 real domain or reverse proxy behaves as configured.

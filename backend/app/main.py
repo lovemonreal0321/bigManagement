@@ -78,16 +78,31 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    # Teammates on the same LAN, whose address the router may change at any
-    # time. See `Settings.cors_origin_regex`.
-    allow_origin_regex=settings.cors_origin_regex,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if settings.cors_allow_any_origin:
+    logger.warning(
+        "CORS_ALLOW_ANY_ORIGIN is on — every origin is accepted. "
+        "Only appropriate on a network you control."
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=".*",
+        # Credentials cannot be combined with a reflected wildcard origin, and
+        # they are not needed: the session is a bearer token, not a cookie.
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        # Teammates on the same LAN or VPN, whose address may change at any
+        # time. See `Settings.cors_origin_regex`.
+        allow_origin_regex=settings.cors_origin_regex,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 register_exception_handlers(app)
 app.include_router(api_router, prefix=settings.api_prefix)
