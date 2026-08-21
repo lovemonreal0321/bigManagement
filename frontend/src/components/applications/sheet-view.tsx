@@ -61,6 +61,13 @@ const NEW_ROW = "__new__";
  */
 const UNTITLED = "Untitled role";
 
+/**
+ * How long the blank row waits, after company and link are both filled, before
+ * saving itself. Long enough not to fire mid-URL, short enough to feel like the
+ * row appeared on its own.
+ */
+const AUTO_ADD_DELAY_MS = 1200;
+
 type Cell = { rowId: string; field: Field };
 
 const sameCell = (a: Cell | null, b: Cell | null) =>
@@ -123,16 +130,37 @@ export function SheetView({
     [sheet],
   );
 
-  // Spreadsheet gutter numbers, counted through the day bands.
-  const rowNumbers = React.useMemo(
-    () => new Map(flatRows.map((row, index) => [row.id, index + 1])),
-    [flatRows],
-  );
+  // Numbering restarts at 1 under each day band, so it reads as "the 3rd
+  // application that day" and lines up with the count on the band itself.
 
   // Focusing is imperative DOM work, not derived state — an effect is right.
   React.useEffect(() => {
     if (editing) inputRef.current?.focus();
   }, [editing]);
+
+  /**
+   * What the blank row currently holds. The cell being typed into lives in
+   * `draft` rather than `newRow`, so both have to be merged to know whether
+   * the row is complete.
+   */
+  const pendingNew = React.useMemo<Record<Field, string>>(
+    () =>
+      editing?.rowId === NEW_ROW
+        ? { ...newRow, [editing.field]: draft }
+        : newRow,
+    [newRow, editing, draft],
+  );
+
+  // Blur handlers fire before their own `setNewRow` has flushed, so they read
+  // the row from here rather than from state.
+  const pendingRef = React.useRef(pendingNew);
+  React.useEffect(() => {
+    pendingRef.current = pendingNew;
+  }, [pendingNew]);
+
+  // One create at a time: the auto-add timer, Enter and blur can otherwise
+  // race and post the same row twice.
+  const creatingRef = React.useRef(false);
 
   function beginEdit(row: SheetRow, field: Field) {
     if (!canEdit) return;
@@ -179,11 +207,16 @@ export function SheetView({
     }
   }
 
-  async function commitNewRow(values: Record<Field, string>) {
+  async function commitNewRow(
+    values: Record<Field, string>,
+    options: { focusAfter?: Field | null } = {},
+  ) {
     const company = values.company_name.trim();
     // A date or a link alone is not an application; wait for a company.
     if (!company) return false;
+    if (creatingRef.current) return false;
 
+    creatingRef.current = true;
     try {
       await createApplication.mutateAsync({
         person_id: personId,
@@ -192,7 +225,15 @@ export function SheetView({
         applied_date: values.applied_date || undefined,
         job_url: withProtocol(values.job_url) || undefined,
       });
-      setNewRow({ applied_date: "", company_name: "", job_url: "" });
+      const empty = { applied_date: "", company_name: "", job_url: "" };
+      setNewRow(empty);
+      pendingRef.current = empty;
+      setDraft("");
+      // A fresh blank row is now waiting; put the cursor where the next entry
+      // starts, or nowhere if the user has already moved on.
+      setEditing(
+        options.focusAfter ? { rowId: NEW_ROW, field: options.focusAfter } : null,
+      );
       toast.success(`${company} added`);
       return true;
     } catch (error) {
@@ -202,7 +243,46 @@ export function SheetView({
           : "Could not add that application.",
       );
       return false;
+    } finally {
+      creatingRef.current = false;
     }
+  }
+
+  // `commitNewRow` is rebuilt every render, so the auto-add timer reaches it
+  // through a ref — otherwise the effect below would re-arm continuously.
+  const commitRef = React.useRef(commitNewRow);
+  React.useEffect(() => {
+    commitRef.current = commitNewRow;
+  });
+
+  /** Both the fields the user types are filled, so the row can save itself. */
+  const autoAddArmed =
+    canEdit &&
+    pendingNew.company_name.trim().length > 0 &&
+    pendingNew.job_url.trim().length > 0;
+
+  // Fill in company and link and the row commits on its own — no Enter. Enter
+  // still works and is immediate; this is for the common case of typing across
+  // the row and moving on.
+  React.useEffect(() => {
+    if (!autoAddArmed) return;
+    const timer = window.setTimeout(() => {
+      void commitRef.current(pendingRef.current, { focusAfter: "company_name" });
+    }, AUTO_ADD_DELAY_MS);
+    return () => window.clearTimeout(timer);
+    // Every keystroke restarts the wait, so a pause is what triggers it.
+  }, [
+    autoAddArmed,
+    pendingNew.applied_date,
+    pendingNew.company_name,
+    pendingNew.job_url,
+  ]);
+
+  /** Focus left the blank row entirely — save what was typed rather than lose it. */
+  async function commitOnLeave() {
+    if (creatingRef.current) return;
+    if (!pendingRef.current.company_name.trim()) return;
+    await commitRef.current(pendingRef.current, { focusAfter: null });
   }
 
   /** Enter → same column, next row. Tab → next column, wrapping to the row below. */
@@ -286,12 +366,7 @@ export function SheetView({
     const shouldCommit =
       direction === "down" || FIELDS.indexOf(field) === FIELDS.length - 1;
     if (shouldCommit && values.company_name.trim()) {
-      const created = await commitNewRow(values);
-      if (created) {
-        setEditing({ rowId: NEW_ROW, field: FIELDS[0] });
-        setDraft("");
-        return;
-      }
+      await commitNewRow(values, { focusAfter: FIELDS[0] });
       return;
     }
     move(NEW_ROW, field, direction);
@@ -464,7 +539,7 @@ export function SheetView({
                   </th>
                 </tr>
 
-                {day.rows.map((row) => (
+                {day.rows.map((row, index) => (
                     <tr
                       key={row.id}
                       className={cn(
@@ -473,7 +548,7 @@ export function SheetView({
                       )}
                     >
                       <td className="border-b border-r border-border px-1 text-center align-middle text-[11px] tabular-nums text-subtle-foreground">
-                        {rowNumbers.get(row.id)}
+                        {index + 1}
                       </td>
 
                       {COLUMNS.map((column) => (
@@ -541,9 +616,20 @@ export function SheetView({
               </React.Fragment>
             ))}
 
-            {/* The blank row: type across it to add an application. */}
+            {/* The blank row: type across it to add an application. It saves
+                itself once company and link are filled, and also when focus
+                leaves the row, so typed text is never silently dropped. */}
             {canEdit ? (
-              <tr className="bg-surface">
+              <tr
+                className="bg-surface"
+                onBlur={(event) => {
+                  // Moving between this row's own cells is not leaving it.
+                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    return;
+                  }
+                  void commitOnLeave();
+                }}
+              >
                 <td className="border-b border-r border-border px-1 text-center align-middle text-subtle-foreground">
                   <Plus className="mx-auto size-3" />
                 </td>
@@ -583,7 +669,14 @@ export function SheetView({
                     />
                   </td>
                 ))}
-                <td className="border-b border-border" />
+                <td className="border-b border-border px-1 align-middle">
+                  {autoAddArmed ? (
+                    <span className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground">
+                      <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                      Adding
+                    </span>
+                  ) : null}
+                </td>
               </tr>
             ) : null}
           </tbody>

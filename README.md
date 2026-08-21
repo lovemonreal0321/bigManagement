@@ -206,15 +206,24 @@ The sheet is deliberately narrow — three columns: **date**, **company**, and t
 applications went out that day, **oldest day at the top**, so the newest row
 lands at the bottom next to the blank row you type into rather than jumping away
 from the cursor. Rows within a day stay in the order you added them, so editing
-one does not make it move.
+one does not make it move. Numbering in the left gutter **restarts at 1 under
+each day**, so a row reads as "the third application that day" and lines up with
+the count on the band.
 
 - **Type into a cell to change it.** `Enter` saves and moves down, `Tab` saves
   and moves right, `Esc` cancels. Each cell saves on its own, so a mistyped
   link never blocks a company rename.
-- **Type into the blank bottom row to add an application.** A company name is
-  the only thing required; the date defaults to today *in that person's
-  timezone*, and the job title is filled in as "Untitled role" for you to name
-  later on the detail page.
+- **Type into the blank bottom row to add an application.** Fill in the company
+  and the link and the row **saves itself** about a second later — no `Enter`
+  needed — and a fresh blank row appears with the cursor waiting in *Company*.
+  A small "Adding" dot shows while it waits. `Enter` still works and is
+  immediate; use it when there is no link to paste.
+- **Nothing typed is dropped.** Moving focus out of the blank row saves it too,
+  as long as a company name is there. A link on its own is not an application
+  and is left alone.
+- A company name is the only thing required; the date defaults to today *in that
+  person's timezone*, and the job title is filled in as "Untitled role" for you
+  to name later on the detail page.
 - **Search narrows one sheet** as you type — company, job title, notes or
   person. The day counts follow the search, so the numbers always describe
   what is on screen. Tab totals ignore it, so the tab bar holds still while you
