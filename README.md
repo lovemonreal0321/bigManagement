@@ -598,19 +598,43 @@ app peak around 2 GB.
 (`::1`) first, so a backend bound to `--host 127.0.0.1` is unreachable. Bind
 `--host 0.0.0.0` instead.
 
-**Reaching it from another device on the same network.** Start both servers
-bound to every interface, then open the host machine's LAN address:
+**Reaching it from another device on the same network.**
 
-```bash
-# on the machine running the app
-uvicorn app.main:app --host 0.0.0.0 --port 8100     # backend
-npm run start -- --hostname 0.0.0.0                 # frontend (or npm run dev)
+On Windows, run the two launchers in the repository root — double-click them, or
+run them from `cmd`:
+
+```bat
+allow-through-firewall.cmd   :: once, as administrator
+start-backend.cmd            :: leave the window open
+start-frontend.cmd           :: leave the window open; prints the address to share
 ```
 
-Find the address with `ipconfig` on Windows or `ip addr` on Linux/macOS, then
-browse to `http://192.168.x.x:3100`. Nothing else needs configuring: the
-frontend notices it is being served from a non-loopback host and calls the API
-on that same host, and the backend already accepts private-network origins.
+The equivalent commands by hand, from the repository root in `cmd`:
+
+```bat
+cd backend
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8100
+
+:: in a second window
+cd frontend
+npm run build:webpack
+npm start
+```
+
+On Linux and macOS:
+
+```bash
+cd backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8100
+cd frontend && npm run build && npm start
+```
+
+`npm start` and `npm run dev` already bind every interface, so no extra flag is
+needed. Find the address with `ipconfig` (Windows) or `ip addr` (Linux/macOS)
+and browse to `http://192.168.x.x:3100`.
+
+Nothing else needs configuring: the frontend notices it is being served from a
+non-loopback host and calls the API on that same host, and the backend already
+accepts private-network origins.
 
 If the page loads but spins forever, it is almost always one of:
 
