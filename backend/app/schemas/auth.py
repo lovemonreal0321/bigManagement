@@ -24,6 +24,9 @@ class UserOut(ORMModel):
     role: UserRole
     is_active: bool = True
     must_change_password: bool = False
+    #: Jobs carry salaries, so they are hidden unless an administrator grants
+    #: this. Always true in effect for an administrator.
+    can_view_jobs: bool = False
     last_login_at: datetime | None = None
     #: Profiles this user may edit. Empty for an admin, who may edit everyone —
     #: read `is_admin` first rather than treating the empty list as "nothing".
@@ -53,6 +56,7 @@ class UserCreate(BaseModel):
     email: str | None = Field(default=None, max_length=254)
     role: UserRole = UserRole.USER
     person_ids: list[str] = Field(default_factory=list)
+    can_view_jobs: bool = False
 
     @field_validator("username")
     @classmethod
@@ -65,6 +69,7 @@ class UserUpdate(BaseModel):
     email: str | None = Field(default=None, max_length=254)
     role: UserRole | None = None
     is_active: bool | None = None
+    can_view_jobs: bool | None = None
 
 
 class SetPasswordRequest(BaseModel):

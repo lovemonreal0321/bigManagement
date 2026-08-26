@@ -33,7 +33,7 @@ import { Button, Spinner } from "@/components/ui/primitives";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-/** Navigation, kept to the seven sections in the spec — nothing more. */
+/** Navigation. Kept deliberately short — a section earns its place or stays out. */
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
@@ -87,9 +87,14 @@ function ThemeToggle() {
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  // Jobs carry salary, so the section is hidden outright rather than shown and
+  // refused — a locked door still tells you there is a room.
+  const { canViewJobs } = useAuth();
+  const items = NAV.filter((item) => item.href !== "/jobs" || canViewJobs);
+
   return (
     <nav className="space-y-0.5">
-      {NAV.map((item) => {
+      {items.map((item) => {
         const active =
           pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;

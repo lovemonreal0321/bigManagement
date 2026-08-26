@@ -4,11 +4,15 @@ One rule, applied everywhere:
 
 * **admin** may do anything in the workspace.
 * **user** may edit only the profiles assigned to them, and may read
-  everything else.
+  everything else — with one exception, below.
 
-Read access is deliberately unrestricted — the shared calendar, pipeline and
-comparison analytics only mean something when everyone is visible. What is
-restricted is *writing*.
+Read access is otherwise deliberately unrestricted: the shared calendar,
+pipeline and comparison analytics only mean something when everyone is visible.
+What is restricted is *writing*.
+
+**Jobs are the exception.** They carry salaries, so they are invisible unless an
+administrator grants an account access, and a granted account sees only the
+profiles assigned to it, read-only. Managing jobs stays administrator-only.
 
 Every write path funnels through `require_person_edit`, so adding a new
 endpoint that forgets the check is a visible omission rather than a silent
@@ -42,6 +46,42 @@ def require_admin(user: User) -> User:
             "Only an administrator can do that.", code="admin_required"
         )
     return user
+
+
+# --------------------------------------------------------------------------
+# Jobs
+#
+# The one exception to "everyone reads everything". Jobs carry salaries, so
+# they are invisible unless an administrator says otherwise — and even then,
+# read-only and limited to the profiles that user already looks after.
+# --------------------------------------------------------------------------
+
+
+def can_view_jobs(user: User) -> bool:
+    return is_admin(user) or bool(user.can_view_jobs)
+
+
+def require_jobs_access(user: User) -> None:
+    """Raise unless this user may see jobs at all."""
+    if can_view_jobs(user):
+        return
+    raise ForbiddenError(
+        "Job records are not shared with your account. An administrator can "
+        "grant access.",
+        code="jobs_not_permitted",
+    )
+
+
+def visible_job_person_ids(user: User) -> set[str] | None:
+    """Whose jobs this user may read. `None` means "everyone" (admin).
+
+    A granted non-admin sees only the profiles assigned to them: salary is
+    need-to-know, and the assignment already says which people are their
+    business.
+    """
+    if is_admin(user):
+        return None
+    return set(user.assigned_person_ids)
 
 
 def editable_person_ids(user: User) -> set[str] | None:

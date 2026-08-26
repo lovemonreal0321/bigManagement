@@ -274,7 +274,8 @@ export function useInterviewSearch(personIds: PersonIds, search = "") {
 // Jobs
 // --------------------------------------------------------------------------
 
-export function useJobs(personIds: PersonIds, includeEnded = true) {
+/** `enabled` is off for accounts without job access, so no pointless 403. */
+export function useJobs(personIds: PersonIds, includeEnded = true, enabled = true) {
   return useQuery({
     queryKey: queryKeys.jobs(personIds, includeEnded),
     queryFn: () =>
@@ -282,13 +283,15 @@ export function useJobs(personIds: PersonIds, includeEnded = true) {
         ...personParams(personIds),
         include_ended: includeEnded,
       }),
+    enabled,
   });
 }
 
-export function useJobSummary(personIds: PersonIds) {
+export function useJobSummary(personIds: PersonIds, enabled = true) {
   return useQuery({
     queryKey: queryKeys.jobSummary(personIds),
     queryFn: () => api.get<JobSummary>("/jobs/summary", personParams(personIds)),
+    enabled,
   });
 }
 

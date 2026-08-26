@@ -95,6 +95,7 @@ def create_user(
         role=payload.role.value,
         email=payload.email,
         person_ids=payload.person_ids,
+        can_view_jobs=payload.can_view_jobs,
     )
     return _to_out(user)
 
@@ -123,6 +124,7 @@ def update_user(
         email=payload.email,
         role=payload.role.value if payload.role else None,
         is_active=payload.is_active,
+        can_view_jobs=payload.can_view_jobs,
     )
     return _to_out(user)
 

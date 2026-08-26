@@ -276,6 +276,7 @@ def create_user(
     role: str = UserRole.USER.value,
     email: str | None = None,
     person_ids: list[str] | None = None,
+    can_view_jobs: bool = False,
 ) -> User:
     username = username.strip().lower()
     if not username:
@@ -297,6 +298,7 @@ def create_user(
         # An admin-chosen password should be replaced by one only the user
         # knows, so the UI can prompt on first sign-in.
         must_change_password=True,
+        can_view_jobs=can_view_jobs,
     )
     db.add(user)
     db.flush()
@@ -315,6 +317,7 @@ def update_user(
     email: str | None = None,
     role: str | None = None,
     is_active: bool | None = None,
+    can_view_jobs: bool | None = None,
 ) -> User:
     user = get_user(db, workspace, user_id)
 
@@ -323,6 +326,8 @@ def update_user(
     if email is not None:
         user.email = email or None
 
+    if can_view_jobs is not None:
+        user.can_view_jobs = can_view_jobs
     if role is not None and role != user.role:
         _guard_last_admin(db, workspace, user, new_role=role)
         user.role = role

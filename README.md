@@ -89,11 +89,17 @@ password.
 Two roles, and one sentence that covers the whole model:
 
 > **Everyone reads everything. Only an administrator, or a user the profile is
-> assigned to, can change it.**
+> assigned to, can change it — except Jobs, which are hidden by default.**
 
-Read access is deliberately open — a shared calendar, a combined pipeline and
-side-by-side analytics are the point of the app, and they stop meaning anything
-if half the workspace is invisible. What is scoped is *writing*.
+Read access is otherwise deliberately open: a shared calendar, a combined
+pipeline and side-by-side analytics are the point of the app, and they stop
+meaning anything if half the workspace is invisible. What is scoped is
+*writing*.
+
+**Jobs are the exception**, because they carry salary. They are invisible until
+an administrator ticks **Can view Jobs** on an account, and even then that
+account sees only the profiles assigned to it, read-only. Managing jobs —
+adding, editing, ending, deleting — stays with administrators.
 
 | | Administrator | General user |
 | --- | --- | --- |
@@ -103,6 +109,8 @@ if half the workspace is invisible. What is scoped is *writing*.
 | Create, rename, recolour, archive people | yes | no |
 | Workspace settings, calendar + mailbox connections, AI enrichment | yes | no |
 | Create users, set their passwords, assign profiles | yes | no |
+| **See Jobs and salary** | yes | **only if granted, and only assigned profiles** |
+| **Add / edit / end a job** | yes | no |
 | Change own password | yes | yes |
 
 A general user's UI hides what they cannot do rather than showing a control
@@ -120,6 +128,10 @@ the UI is a courtesy, not the boundary.
 - **Assign profiles** — multi-select, replaces the previous set. Assignment
   grants edit rights over that person's *records*; the profile itself (name,
   colour, timezone) stays administrator-only, because it affects every view.
+- **Can view Jobs** — off by default. Ticking it reveals the Jobs section for
+  that account, showing jobs for the profiles assigned to it, read-only. The
+  pay block on Analytics follows the same rule, so salary cannot leak in
+  through the back door.
 - **Password / Disable / Remove** — a disabled account cannot sign in, and its
   existing token stops working on the next request rather than lingering.
 
@@ -251,6 +263,9 @@ Day grouping happens on the server rather than in the browser, because
 would re-date every row into whatever zone the viewer's laptop is in.
 
 ### Jobs
+
+> Jobs are **administrator-only** unless access is granted. See
+> [Roles and access](#roles-and-access).
 
 An application is an opportunity being pursued; a **job** is income being
 earned. They are separate records because they outlive each other — an

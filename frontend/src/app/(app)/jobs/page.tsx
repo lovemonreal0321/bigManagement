@@ -14,6 +14,7 @@ import {
   Briefcase as BriefcaseIcon,
   Pencil,
   Plus,
+  Lock,
   Square,
   Trash2,
   Wallet,
@@ -74,24 +75,44 @@ const STATUS_TONES: Record<string, string> = {
 
 export default function JobsPage() {
   const { queryIds, people } = usePersonFilter();
-  const { canEdit } = useAuth();
+  // Only an administrator manages jobs; a granted account reads its assigned
+  // profiles and nothing else. The server enforces both.
+  const { isAdmin, canViewJobs } = useAuth();
   const [includeEnded, setIncludeEnded] = React.useState(true);
-  const jobs = useJobs(queryIds, includeEnded);
-  const summary = useJobSummary(queryIds);
+  const jobs = useJobs(queryIds, includeEnded, canViewJobs);
+  const summary = useJobSummary(queryIds, canViewJobs);
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Job | null>(null);
   const [ending, setEnding] = React.useState<Job | null>(null);
 
-  const canAddForSomeone = people.some((person) => canEdit(person.id));
+  // Reachable by typing the URL even with the nav item hidden.
+  if (!canViewJobs) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Jobs" />
+        <Card>
+          <EmptyState
+            icon={Lock}
+            title="Job records are not shared with your account"
+            description="Jobs carry salary details, so they are only visible to administrators and to accounts granted access. An administrator can grant it in Settings → Users."
+          />
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Jobs"
-        description="Offers, employment and payday — the outcome the rest of the app is working towards."
+        description={
+          isAdmin
+            ? "Offers, employment and payday — the outcome the rest of the app is working towards."
+            : "Read-only. You are seeing the profiles assigned to you."
+        }
         actions={
-          canAddForSomeone ? (
+          isAdmin ? (
             <Button
               size="sm"
               variant="primary"
@@ -146,7 +167,7 @@ export default function JobsPage() {
             title="No jobs recorded yet"
             description="Add one when an offer lands — it can be linked to the application that won it."
             action={
-              canAddForSomeone ? (
+              isAdmin ? (
                 <Button
                   size="sm"
                   variant="primary"
@@ -166,7 +187,7 @@ export default function JobsPage() {
               <JobRow
                 key={job.id}
                 job={job}
-                canEdit={canEdit(job.person_id)}
+                canEdit={isAdmin}
                 onEdit={() => {
                   setEditing(job);
                   setDialogOpen(true);

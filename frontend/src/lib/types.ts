@@ -762,6 +762,8 @@ export interface AuthUser {
   role: UserRole;
   is_active: boolean;
   must_change_password: boolean;
+  /** Jobs carry salary, so they are hidden unless an admin grants this. */
+  can_view_jobs: boolean;
   last_login_at: string | null;
   /**
    * Profiles this user may edit. Always empty for an admin, who may edit
@@ -777,6 +779,7 @@ export interface UserCreatePayload {
   email?: string | null;
   role?: UserRole;
   person_ids?: string[];
+  can_view_jobs?: boolean;
 }
 
 export interface UserUpdatePayload {
@@ -784,6 +787,7 @@ export interface UserUpdatePayload {
   email?: string | null;
   role?: UserRole;
   is_active?: boolean;
+  can_view_jobs?: boolean;
 }
 
 // --------------------------------------------------------------------------

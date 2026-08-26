@@ -38,6 +38,11 @@ interface AuthState {
    * general user, so nothing is enabled by accident.
    */
   canEdit: (personId: string | null | undefined) => boolean;
+  /**
+   * Whether the Jobs section is visible at all. Salary is the one thing this
+   * workspace does not share by default, so an admin grants it per account.
+   */
+  canViewJobs: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -107,7 +112,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const canEdit = (personId: string | null | undefined) =>
       isAdmin ? true : Boolean(personId) && assigned.has(personId!);
 
-    return { user, status, isAdmin, canEdit, login, logout };
+    const canViewJobs = isAdmin || Boolean(user?.can_view_jobs);
+
+    return { user, status, isAdmin, canEdit, canViewJobs, login, logout };
   }, [hydrated, token, me.data, me.isError, login, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

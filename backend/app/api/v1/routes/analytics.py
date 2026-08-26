@@ -6,7 +6,13 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Query
 
-from app.core.deps import CurrentWorkspace, DbSession, SelectedPeople
+from app.core import permissions
+from app.core.deps import (
+    CurrentUser,
+    CurrentWorkspace,
+    DbSession,
+    SelectedPeople,
+)
 from app.core.timeutils import local_date, start_of_week, utcnow
 from app.domains.analytics import service as analytics_service
 from app.domains.analytics.periods import PERIOD_LABELS, resolve_period
@@ -25,6 +31,7 @@ def get_analytics(
     db: DbSession,
     workspace: CurrentWorkspace,
     scope: SelectedPeople,
+    user: CurrentUser,
     period: str = Query("last_30_days"),
     start: date | None = None,
     end: date | None = None,
@@ -38,7 +45,7 @@ def get_analytics(
         end=end,
         week_starts_on=workspace.week_starts_on,
     )
-    return analytics_service.compute_analytics(
+    result = analytics_service.compute_analytics(
         db,
         workspace,
         scope.people,
@@ -46,6 +53,11 @@ def get_analytics(
         include_comparison=len(scope.people) > 1,
         include_trend=include_trend,
     )
+    # The jobs block carries pay, so it follows the same rule as the Jobs
+    # section rather than riding in on the analytics page.
+    if not permissions.can_view_jobs(user):
+        result.jobs = None
+    return result
 
 
 @router.get("/formulas")

@@ -130,6 +130,12 @@ class User(Base, UUIDMixin, TimestampMixin):
     must_change_password: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    #: Jobs carry salaries, so unlike the rest of the workspace they are not
+    #: readable by default. An administrator grants this per account; the holder
+    #: then sees jobs for the profiles assigned to them, read-only.
+    can_view_jobs: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     #: True once this account has signed in with its own password rather than
     #: the recovery password.
     password_changed_at: Mapped[datetime | None] = mapped_column(

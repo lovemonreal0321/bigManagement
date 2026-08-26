@@ -407,68 +407,208 @@ class TestSummary:
 
 
 class TestPermissions:
-    @pytest.fixture
-    def general_user(self, client: TestClient, cast: dict) -> dict[str, str]:
-        client.post(
+    """Jobs are the one place the workspace is not openly readable.
+
+    Salary is need-to-know, so a job is invisible unless an administrator grants
+    the account access — and a granted account sees only the profiles assigned
+    to it, read-only. Managing jobs stays administrator-only.
+    """
+
+    def _make_user(
+        self,
+        client: TestClient,
+        cast: dict,
+        *,
+        username: str,
+        person_ids: list[str],
+        can_view_jobs: bool,
+    ) -> dict[str, str]:
+        created = client.post(
             f"{API}/users",
             json={
-                "username": "jobuser",
+                "username": username,
                 "password": "job-password",
-                "person_ids": [cast["john"]["id"]],
+                "person_ids": person_ids,
+                "can_view_jobs": can_view_jobs,
             },
             headers=cast["headers"],
         )
+        assert created.status_code == 201, created.text
+        assert created.json()["can_view_jobs"] is can_view_jobs
         token = client.post(
             f"{API}/auth/login",
-            json={"username": "jobuser", "password": "job-password"},
+            json={"username": username, "password": "job-password"},
         ).json()["access_token"]
         return {"Authorization": f"Bearer {token}"}
 
-    def test_they_can_add_a_job_for_an_assigned_person(
-        self, client: TestClient, cast: dict, general_user: dict[str, str]
-    ) -> None:
-        response = client.post(
-            f"{API}/jobs",
-            json={
-                "person_id": cast["john"]["id"],
-                "company_name": "Allowed Co",
-                "title": "Engineer",
-            },
-            headers=general_user,
+    @pytest.fixture
+    def denied(self, client: TestClient, cast: dict) -> dict[str, str]:
+        return self._make_user(
+            client,
+            cast,
+            username="nojobs",
+            person_ids=[cast["john"]["id"]],
+            can_view_jobs=False,
         )
-        assert response.status_code == 201
 
-    def test_they_cannot_for_an_unassigned_person(
-        self, client: TestClient, cast: dict, general_user: dict[str, str]
-    ) -> None:
-        response = client.post(
-            f"{API}/jobs",
-            json={
-                "person_id": cast["maria"]["id"],
-                "company_name": "Refused Co",
-                "title": "Engineer",
-            },
-            headers=general_user,
+    @pytest.fixture
+    def viewer(self, client: TestClient, cast: dict) -> dict[str, str]:
+        return self._make_user(
+            client,
+            cast,
+            username="jobviewer",
+            person_ids=[cast["john"]["id"]],
+            can_view_jobs=True,
         )
-        assert response.status_code == 403
 
-    def test_they_can_still_read_everyone(
-        self, client: TestClient, cast: dict, general_user: dict[str, str]
+    def test_jobs_are_invisible_by_default(
+        self, client: TestClient, cast: dict, denied: dict[str, str]
     ) -> None:
+        """Not an empty list — a refusal, so nothing is quietly implied."""
+        for path in ("/jobs", "/jobs/summary"):
+            response = client.get(f"{API}{path}", headers=denied)
+            assert response.status_code == 403, f"{path}: {response.text}"
+            assert response.json()["error"]["code"] == "jobs_not_permitted"
+
+    def test_a_granted_user_sees_their_assigned_profiles(
+        self, client: TestClient, cast: dict, viewer: dict[str, str]
+    ) -> None:
+        _job(client, cast["headers"], person_id=cast["john"]["id"], status="active")
+        listed = client.get(f"{API}/jobs", headers=viewer)
+        assert listed.status_code == 200, listed.text
+        assert [job["person_name"] for job in listed.json()] == ["John Carter"]
+
+    def test_a_granted_user_does_not_see_anyone_else(
+        self, client: TestClient, cast: dict, viewer: dict[str, str]
+    ) -> None:
+        """Maria is not assigned to them, so her salary is not their business."""
         _job(client, cast["headers"], person_id=cast["maria"]["id"], status="active")
-        listed = client.get(f"{API}/jobs", headers=general_user).json()
-        assert any(j["person_name"] == "Maria Lopez" for j in listed)
+        listed = client.get(f"{API}/jobs", headers=viewer).json()
+        assert listed == []
 
-    def test_they_cannot_end_someone_elses_job(
-        self, client: TestClient, cast: dict, general_user: dict[str, str]
+    def test_fetching_an_unassigned_job_by_id_is_a_404(
+        self, client: TestClient, cast: dict, viewer: dict[str, str]
     ) -> None:
+        """404 rather than 403 — a refusal would confirm the job exists."""
         job = _job(
             client, cast["headers"], person_id=cast["maria"]["id"], status="active"
         )
-        response = client.post(
-            f"{API}/jobs/{job['id']}/end", json={}, headers=general_user
+        response = client.get(f"{API}/jobs/{job['id']}", headers=viewer)
+        assert response.status_code == 404
+
+    def test_the_summary_is_narrowed_too(
+        self, client: TestClient, cast: dict, viewer: dict[str, str]
+    ) -> None:
+        _job(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            status="active",
+            annual_amount=100000,
         )
-        assert response.status_code == 403
+        _job(
+            client,
+            cast["headers"],
+            person_id=cast["maria"]["id"],
+            status="active",
+            annual_amount=900000,
+        )
+        summary = client.get(f"{API}/jobs/summary", headers=viewer).json()
+        assert summary["total_annual"] == 100000
+        assert [p["person_name"] for p in summary["by_person"]] == ["John Carter"]
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("post", "", {"company_name": "Nope", "title": "Engineer"}),
+            ("patch", "/{id}", {"title": "Renamed"}),
+            ("post", "/{id}/end", {}),
+            ("delete", "/{id}", None),
+        ],
+    )
+    def test_a_granted_viewer_still_cannot_manage(
+        self,
+        client: TestClient,
+        cast: dict,
+        viewer: dict[str, str],
+        method: str,
+        path: str,
+        body: dict | None,
+    ) -> None:
+        """View access is read-only, even for their own assigned profile."""
+        job = _job(
+            client, cast["headers"], person_id=cast["john"]["id"], status="active"
+        )
+        url = f"{API}/jobs{path.replace('{id}', job['id'])}"
+        kwargs: dict = {"headers": viewer}
+        if body is not None:
+            kwargs["json"] = {**body, "person_id": cast["john"]["id"]}
+        response = getattr(client, method)(url, **kwargs)
+        assert response.status_code == 403, f"{method} {url} -> {response.text}"
+        assert response.json()["error"]["code"] == "admin_required"
+
+    def test_an_admin_sees_and_manages_everything(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        _job(client, cast["headers"], person_id=cast["john"]["id"], status="active")
+        _job(client, cast["headers"], person_id=cast["maria"]["id"], status="active")
+        listed = client.get(f"{API}/jobs", headers=cast["headers"]).json()
+        assert len(listed) == 2
+
+    def test_access_can_be_granted_and_revoked(
+        self, client: TestClient, cast: dict, denied: dict[str, str]
+    ) -> None:
+        user_id = next(
+            u["id"]
+            for u in client.get(f"{API}/users", headers=cast["headers"]).json()
+            if u["username"] == "nojobs"
+        )
+        assert client.get(f"{API}/jobs", headers=denied).status_code == 403
+
+        client.patch(
+            f"{API}/users/{user_id}",
+            json={"can_view_jobs": True},
+            headers=cast["headers"],
+        )
+        assert client.get(f"{API}/jobs", headers=denied).status_code == 200
+
+        client.patch(
+            f"{API}/users/{user_id}",
+            json={"can_view_jobs": False},
+            headers=cast["headers"],
+        )
+        assert client.get(f"{API}/jobs", headers=denied).status_code == 403
+
+    def test_the_analytics_pay_block_follows_the_same_rule(
+        self, client: TestClient, cast: dict, denied: dict[str, str], viewer: dict[str, str]
+    ) -> None:
+        """Otherwise salary leaks in through the analytics page instead."""
+        _job(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            status="active",
+            annual_amount=180000,
+        )
+        hidden = client.get(
+            f"{API}/analytics", params={"period": "all_time"}, headers=denied
+        ).json()
+        assert hidden["jobs"] is None
+
+        shown = client.get(
+            f"{API}/analytics", params={"period": "all_time"}, headers=viewer
+        ).json()
+        assert shown["jobs"] is not None
+
+    def test_a_new_account_has_no_job_access_unless_asked_for(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        created = client.post(
+            f"{API}/users",
+            json={"username": "plain", "password": "plain-password"},
+            headers=cast["headers"],
+        ).json()
+        assert created["can_view_jobs"] is False
 
 
 class TestAnalytics:

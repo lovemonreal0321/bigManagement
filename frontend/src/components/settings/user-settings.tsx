@@ -75,6 +75,11 @@ export function UserSettings() {
         Administrators can change anything in the workspace. Everyone else can
         see all of it — the shared calendar, the pipeline, the analytics — but
         can only edit the profiles assigned to them below.
+        <br />
+        <strong className="text-foreground">Jobs are the exception.</strong>{" "}
+        They carry salary, so they stay hidden until you tick{" "}
+        <em>Can view Jobs</em> — and then only for that person&apos;s assigned
+        profiles, read-only. Managing jobs stays with administrators.
       </Alert>
 
       <Card>
@@ -201,6 +206,23 @@ function UserRow({
           <option value="admin">Administrator</option>
         </NativeSelect>
 
+        {!isAdmin ? (
+          <label
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+            title="Jobs carry salary, so they are hidden unless you grant this."
+          >
+            <input
+              type="checkbox"
+              checked={user.can_view_jobs}
+              onChange={(event) =>
+                change({ can_view_jobs: event.target.checked })
+              }
+              className="size-3.5 accent-[var(--primary)]"
+            />
+            Can view Jobs
+          </label>
+        ) : null}
+
         <Button size="xs" variant="ghost" onClick={() => setResetting(true)}>
           <KeyRound />
           Password
@@ -236,7 +258,7 @@ function UserRow({
       <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-10">
         {isAdmin ? (
           <span className="text-xs text-muted-foreground">
-            Can edit every profile.
+            Can edit every profile, and sees all jobs.
           </span>
         ) : assigned.length ? (
           <>
@@ -321,6 +343,7 @@ function CreateUserForm({
   const [password, setPassword] = React.useState("");
   const [role, setRole] = React.useState<UserRole>("user");
   const [selected, setSelected] = React.useState<string[]>([]);
+  const [canViewJobs, setCanViewJobs] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const tooShort = password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
@@ -337,6 +360,7 @@ function CreateUserForm({
         display_name: displayName.trim() || undefined,
         role,
         person_ids: role === "admin" ? [] : selected,
+        can_view_jobs: role === "admin" ? true : canViewJobs,
       });
       toast.success(`${username.trim().toLowerCase()} can now sign in`);
       onDone();
@@ -396,13 +420,31 @@ function CreateUserForm({
       </Field>
 
       {role === "user" ? (
-        <Field label="Profiles they can edit" hint="pick any number">
-          <PersonPicker
-            people={people}
-            selected={selected}
-            onChange={setSelected}
-          />
-        </Field>
+        <>
+          <Field label="Profiles they can edit" hint="pick any number">
+            <PersonPicker
+              people={people}
+              selected={selected}
+              onChange={setSelected}
+            />
+          </Field>
+
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
+            <input
+              type="checkbox"
+              checked={canViewJobs}
+              onChange={(event) => setCanViewJobs(event.target.checked)}
+              className="mt-0.5 accent-[var(--primary)]"
+            />
+            <span>
+              <span className="text-foreground">Can view Jobs</span>
+              <span className="block text-xs text-muted-foreground">
+                Salary is hidden by default. Ticking this shows jobs for the
+                profiles above, read-only.
+              </span>
+            </span>
+          </label>
+        </>
       ) : null}
 
       {error ? (
