@@ -28,6 +28,7 @@ from app.schemas.interview import (
     InterviewEventOut,
     InterviewEventUpdate,
     InterviewOutcomeUpdate,
+    InterviewSearchResult,
     InterviewStageCreate,
     InterviewStageOut,
     InterviewStageReorder,
@@ -287,6 +288,23 @@ def delete_event(
 # --------------------------------------------------------------------------
 # Queries
 # --------------------------------------------------------------------------
+
+
+@router.get("/interviews/search", response_model=list[InterviewSearchResult])
+def search_interviews(
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    scope: SelectedPeople,
+    q: Annotated[
+        str | None,
+        Query(description="Matches the interview name, company or job title"),
+    ] = None,
+    limit: int = Query(25, ge=1, le=100),
+) -> list[InterviewSearchResult]:
+    """Find a past interview, to hang a later round off it (spec §46)."""
+    return interview_service.search_stages(
+        db, workspace, person_ids=scope.ids, search=q, limit=limit
+    )
 
 
 @router.get("/interviews/upcoming", response_model=list[UpcomingInterview])

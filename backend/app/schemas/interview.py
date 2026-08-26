@@ -199,3 +199,30 @@ class UpcomingInterview(BaseModel):
     timezone: str | None
     meeting_url: str | None
     location: str | None
+
+
+class InterviewSearchResult(BaseModel):
+    """One past interview, found by searching, with enough context to identify it.
+
+    Used when attaching a calendar event to a journey that is already under way:
+    people remember "the Anthropic recruiter screen" far more readily than which
+    application row it hangs off.
+    """
+
+    stage_id: str
+    application_id: str
+    person_id: str
+    company_name: str
+    job_title: str
+    stage_name: str
+    stage_badge: str
+    type_key: str
+    round_number: int | None
+    sequence: int
+    status: str
+    outcome: str
+    scheduled_start: datetime | None
+    result_date: date | None
+    event_count: int
+    #: Round number a following interview would take on this application.
+    next_round_number: int

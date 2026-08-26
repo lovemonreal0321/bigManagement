@@ -36,6 +36,7 @@ from app.schemas.interview import (
     InterviewEventCreate,
     InterviewEventUpdate,
     InterviewOutcomeUpdate,
+    InterviewSearchResult,
     InterviewStageCreate,
     InterviewStageUpdate,
     UpcomingInterview,
@@ -145,6 +146,100 @@ def _next_round_number(db: Session, application_id: str) -> int:
         )
     )
     return (current or 0) + 1
+
+
+def search_stages(
+    db: Session,
+    workspace: Workspace,
+    *,
+    person_ids: list[str] | None = None,
+    search: str | None = None,
+    limit: int = 25,
+) -> list[InterviewSearchResult]:
+    """Find past interviews by what the user remembers about them.
+
+    Matches the stage name, the company and the job title, because "the
+    Anthropic recruiter screen" is how people refer to a round — not by the
+    application row it belongs to. Used when attaching a later-round calendar
+    event to a journey that is already under way.
+    """
+    from sqlalchemy import or_
+
+    stmt = (
+        select(InterviewStage, Application)
+        .join(Application, Application.id == InterviewStage.application_id)
+        .where(Application.workspace_id == workspace.id)
+    )
+    if person_ids is not None:
+        stmt = stmt.where(Application.person_id.in_(person_ids))
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                InterviewStage.name.ilike(term),
+                Application.company_name.ilike(term),
+                Application.job_title.ilike(term),
+            )
+        )
+
+    # Most recently scheduled first: a follow-on round almost always attaches to
+    # something that happened lately.
+    rows = list(
+        db.execute(
+            stmt.order_by(
+                InterviewStage.scheduled_start.desc().nullslast(),
+                InterviewStage.sequence.desc(),
+            ).limit(limit)
+        )
+    )
+    if not rows:
+        return []
+
+    registry = load_registry(db, workspace.id)
+    stage_ids = [stage.id for stage, _ in rows]
+
+    counts = dict(
+        db.execute(
+            select(InterviewEvent.interview_stage_id, func.count(InterviewEvent.id))
+            .where(InterviewEvent.interview_stage_id.in_(stage_ids))
+            .group_by(InterviewEvent.interview_stage_id)
+        ).all()
+    )
+    # One grouped query for the next round per application, never one per row.
+    application_ids = {application.id for _, application in rows}
+    highest = dict(
+        db.execute(
+            select(
+                InterviewStage.application_id, func.max(InterviewStage.round_number)
+            )
+            .where(InterviewStage.application_id.in_(application_ids))
+            .group_by(InterviewStage.application_id)
+        ).all()
+    )
+
+    return [
+        InterviewSearchResult(
+            stage_id=stage.id,
+            application_id=application.id,
+            person_id=application.person_id,
+            company_name=application.company_name,
+            job_title=application.job_title,
+            stage_name=stage.name,
+            stage_badge=stage_badge(
+                stage.round_number, registry.get(stage.type_key).short_label
+            ),
+            type_key=stage.type_key,
+            round_number=stage.round_number,
+            sequence=stage.sequence,
+            status=stage.status,
+            outcome=stage.outcome,
+            scheduled_start=stage.scheduled_start,
+            result_date=stage.result_date,
+            event_count=int(counts.get(stage.id, 0)),
+            next_round_number=int(highest.get(application.id) or 0) + 1,
+        )
+        for stage, application in rows
+    ]
 
 
 # --------------------------------------------------------------------------

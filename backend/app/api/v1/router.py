@@ -13,6 +13,7 @@ from app.api.v1.routes import (
     email,
     followups,
     interviews,
+    jobs,
     people,
     settings,
 )
@@ -26,6 +27,7 @@ api_router.include_router(applications.router)
 api_router.include_router(interviews.types_router)
 api_router.include_router(interviews.router)
 api_router.include_router(followups.router)
+api_router.include_router(jobs.router)
 api_router.include_router(calendar.router)
 api_router.include_router(email.router)
 api_router.include_router(email.ai_router)

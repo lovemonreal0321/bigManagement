@@ -10,6 +10,7 @@ from app.models.calendar import CalendarConnection, CalendarEvent, ExternalCalen
 from app.models.email import AiExtraction, EmailAccount, EmailMessage
 from app.models.followup import FollowUp
 from app.models.interview import InterviewEvent, InterviewStage, InterviewType
+from app.models.job import Job
 from app.models.person import Person, ResumeVersion
 from app.models.workspace import User, Workspace
 
@@ -27,6 +28,7 @@ __all__ = [
     "InterviewEvent",
     "InterviewStage",
     "InterviewType",
+    "Job",
     "Person",
     "ResumeVersion",
     "User",

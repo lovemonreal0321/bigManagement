@@ -428,3 +428,86 @@ class ActivityType(StrEnum):
     #: in the same log so an administrator has one place to look, but tagged so
     #: it can be filtered out of a person's own timeline.
     SECURITY_EVENT = "security_event"
+
+
+# --------------------------------------------------------------------------
+# Jobs — what the search is actually for
+# --------------------------------------------------------------------------
+
+
+class JobStatus(StrEnum):
+    """Where a job stands.
+
+    `OFFERED` is a job on the table but not yet agreed; `ACCEPTED` is agreed but
+    not started; `ACTIVE` is being worked. Everything else is over, and the
+    distinction between them is kept because "laid off" and "resigned" are not
+    the same story to tell later.
+    """
+
+    OFFERED = "offered"
+    ACCEPTED = "accepted"
+    ACTIVE = "active"
+    ENDED = "ended"
+    DECLINED = "declined"
+
+
+#: Statuses meaning the person is (or will be) earning from this job.
+LIVE_JOB_STATUSES: frozenset[str] = frozenset(
+    {JobStatus.ACCEPTED.value, JobStatus.ACTIVE.value}
+)
+
+#: Statuses meaning the job is over or never began.
+CLOSED_JOB_STATUSES: frozenset[str] = frozenset(
+    {JobStatus.ENDED.value, JobStatus.DECLINED.value}
+)
+
+
+class JobEndReason(StrEnum):
+    """Why a job ended. Recorded rather than inferred — being laid off and
+    resigning look identical in the data otherwise."""
+
+    RESIGNED = "resigned"
+    LAID_OFF = "laid_off"
+    CONTRACT_ENDED = "contract_ended"
+    TERMINATED = "terminated"
+    OTHER = "other"
+
+
+class JobType(StrEnum):
+    FULL_TIME = "full_time"
+    PART_TIME = "part_time"
+    CONTRACT = "contract"
+    FREELANCE = "freelance"
+    INTERNSHIP = "internship"
+    TEMPORARY = "temporary"
+
+
+class SalaryType(StrEnum):
+    """How the pay was quoted. Both are stored; one is derived from the other."""
+
+    ANNUAL = "annual"
+    HOURLY = "hourly"
+
+
+class PayPeriod(StrEnum):
+    WEEKLY = "weekly"
+    BIWEEKLY = "biweekly"
+    SEMIMONTHLY = "semimonthly"
+    MONTHLY = "monthly"
+
+
+#: Pay runs per year, used to size each cheque. Semi-monthly is the 1st and
+#: 15th (24), which is not the same as bi-weekly (26) — a distinction people
+#: notice on payday.
+PAY_PERIODS_PER_YEAR: dict[str, int] = {
+    PayPeriod.WEEKLY.value: 52,
+    PayPeriod.BIWEEKLY.value: 26,
+    PayPeriod.SEMIMONTHLY.value: 24,
+    PayPeriod.MONTHLY.value: 12,
+}
+
+#: Default full-time basis for converting hourly to annual: 40 h/week x 52
+#: weeks. Stored per job so part-time and contract roles can differ, and shown
+#: in the UI so it is never a hidden assumption.
+DEFAULT_HOURS_PER_WEEK = 40.0
+DEFAULT_WEEKS_PER_YEAR = 52.0
