@@ -250,6 +250,15 @@ Day grouping happens on the server rather than in the browser, because
 `applied_date` is anchored to the *person's* timezone. Regrouping client-side
 would re-date every row into whatever zone the viewer's laptop is in.
 
+### Linking a calendar event to an application
+
+Opening an imported event on the Calendar offers **Link existing application**.
+The picker searches as you type — company, job title, notes, location or person,
+the same matcher the sheet uses — rather than making you scroll a dropdown of
+everything that person has applied to. Arrow keys move, Enter chooses, and the
+matched text is highlighted so a long list is quick to scan. Only that person's
+applications are offered, because an interview belongs to one of them.
+
 ### Calendar is the source of truth
 
 When a synced event moves, the interview linked to it moves with it, and the

@@ -23,6 +23,7 @@ import {
   NativeSelect,
   Skeleton,
 } from "@/components/ui/primitives";
+import { ApplicationPicker } from "@/components/applications/application-picker";
 import { ReadOnlyNote } from "@/components/shared/read-only";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -32,7 +33,6 @@ import {
   formatTime,
 } from "@/lib/format";
 import {
-  useApplications,
   useCalendarEvent,
   useClassifyEvent,
   useCreateApplicationFromEvent,
@@ -237,6 +237,7 @@ export function EventDetailDialog({
                   <LinkExistingForm
                     eventId={calendarEventId!}
                     personId={event.person_id}
+                    personName={event.person_name}
                     onDone={() => onOpenChange(false)}
                     onCancel={() => setMode("none")}
                   />
@@ -270,15 +271,16 @@ export function EventDetailDialog({
 function LinkExistingForm({
   eventId,
   personId,
+  personName,
   onDone,
   onCancel,
 }: {
   eventId: string;
   personId: string;
+  personName?: string;
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const { data: applications } = useApplications([personId], { limit: 100 });
   const { data: types } = useInterviewTypes();
   const link = useLinkEvent();
   const [applicationId, setApplicationId] = React.useState("");
@@ -311,20 +313,14 @@ function LinkExistingForm({
       onSubmit={submit}
       className="space-y-3 rounded-md border border-border p-3"
     >
-      <Field label="Application" htmlFor="link-application">
-        <NativeSelect
-          id="link-application"
+      <Field label="Application">
+        <ApplicationPicker
+          personId={personId}
+          personName={personName}
           value={applicationId}
-          onChange={(event) => setApplicationId(event.target.value)}
-          required
-        >
-          <option value="">Choose an application…</option>
-          {(applications?.items ?? []).map((application) => (
-            <option key={application.id} value={application.id}>
-              {application.company_name} — {application.job_title}
-            </option>
-          ))}
-        </NativeSelect>
+          onChange={setApplicationId}
+          autoFocus
+        />
       </Field>
 
       <div className="grid gap-3 sm:grid-cols-2">
