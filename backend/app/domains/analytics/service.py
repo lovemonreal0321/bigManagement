@@ -31,6 +31,7 @@ from app.schemas.analytics import (
     AnalyticsOut,
     ConversionMetrics,
     FunnelStep,
+    JobOutcome,
     PeriodOut,
     PersonComparisonRow,
     RateOut,
@@ -277,11 +278,48 @@ def compute_analytics(
         notes=_notes(),
     )
 
+    result.jobs = _job_outcome(db, workspace, person_ids, period)
+
     if include_comparison and len(people) > 1:
         result.comparison = _comparison(db, workspace, people, period, registry)
     if include_trend:
         result.trend = _trend(db, workspace, person_ids, period, tz)
     return result
+
+
+def _job_outcome(
+    db: Session, workspace: Workspace, person_ids: list[str], period: Period
+) -> JobOutcome:
+    """The far end of the funnel: offers that became work, and what it pays.
+
+    Counted by when a job *started* or *ended*, so the period means the same
+    thing it does elsewhere on the page. The money figure is deliberately not
+    period-scoped — "what is being earned" is a present-tense question.
+    """
+    from app.enums import LIVE_JOB_STATUSES, JobStatus
+    from app.models import Job
+
+    stmt = select(Job).where(Job.workspace_id == workspace.id)
+    if person_ids:
+        stmt = stmt.where(Job.person_id.in_(person_ids))
+    jobs = list(db.scalars(stmt).unique())
+
+    def within(day) -> bool:
+        if day is None:
+            return False
+        if period.start and day < period.start:
+            return False
+        return not (period.end and day > period.end)
+
+    live = [job for job in jobs if job.status in LIVE_JOB_STATUSES]
+    return JobOutcome(
+        jobs_started=sum(1 for job in jobs if within(job.start_date)),
+        jobs_ended=sum(1 for job in jobs if within(job.end_date)),
+        offers_open=sum(1 for job in jobs if job.status == JobStatus.OFFERED.value),
+        live_jobs=len(live),
+        total_annual=round(sum(job.annual_amount or 0 for job in live), 2),
+        currency=(live[0].currency if live else "USD"),
+    )
 
 
 def _empty_conversions() -> ConversionMetrics:

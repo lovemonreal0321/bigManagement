@@ -121,13 +121,24 @@ export function addDaysIso(iso: string, days: number): string {
 }
 
 /** Renders a `YYYY-MM-DD` value without shifting it across a timezone. */
-export function formatDateOnly(iso: string): string {
-  const [year, month, day] = iso.split("-").map(Number);
-  if (!year) return iso;
+/**
+ * `Aug 17` from a date-only string, read as-is rather than shifted into the
+ * viewer's zone.
+ *
+ * Tolerates a full ISO datetime by taking its date part: a formatter that
+ * throws takes the whole page down with it, which is a wildly disproportionate
+ * outcome for a bad string.
+ */
+export function formatDateOnly(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  const value = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(value.getTime())) return iso;
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
-  }).format(new Date(Date.UTC(year, month - 1, day)));
+  }).format(value);
 }
 
 export function formatDurationMinutes(startIso: string, endIso: string): string {
@@ -335,4 +346,71 @@ export const TONE_DOT_CLASSES: Record<Tone, string> = {
   success: "bg-status-success",
   danger: "bg-status-danger",
   offer: "bg-status-offer",
+};
+
+/** `$176,800` — full precision, for figures the user typed themselves. */
+export function formatMoney(
+  value: number | null | undefined,
+  currency = "USD",
+  { compact = false }: { compact?: boolean } = {},
+): string {
+  if (value === null || value === undefined) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    notation: compact && Math.abs(value) >= 10_000 ? "compact" : "standard",
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).format(value);
+}
+
+/** "2 years, 3 months" — how long a job has run. */
+export function formatTenure(days: number | null | undefined): string {
+  if (days === null || days === undefined) return "—";
+  if (days < 31) return `${days} day${days === 1 ? "" : "s"}`;
+  const months = Math.floor(days / 30.44);
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"}`;
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  const yearPart = `${years} year${years === 1 ? "" : "s"}`;
+  return rest ? `${yearPart}, ${rest} month${rest === 1 ? "" : "s"}` : yearPart;
+}
+
+export const JOB_STATUS_LABELS: Record<string, string> = {
+  offered: "Offered",
+  accepted: "Accepted",
+  active: "Active",
+  ended: "Ended",
+  declined: "Declined",
+};
+
+export const JOB_TYPE_LABELS: Record<string, string> = {
+  full_time: "Full time",
+  part_time: "Part time",
+  contract: "Contract",
+  freelance: "Freelance",
+  internship: "Internship",
+  temporary: "Temporary",
+};
+
+export const JOB_END_REASON_LABELS: Record<string, string> = {
+  resigned: "Resigned",
+  laid_off: "Laid off",
+  contract_ended: "Contract ended",
+  terminated: "Terminated",
+  other: "Other",
+};
+
+export const PAY_PERIOD_LABELS: Record<string, string> = {
+  weekly: "Weekly",
+  biweekly: "Every two weeks",
+  semimonthly: "Twice a month",
+  monthly: "Monthly",
+};
+
+/** Cheques per year. Twice-a-month is 24, not 26 — people notice on payday. */
+export const PAY_PERIODS_PER_YEAR: Record<string, number> = {
+  weekly: 52,
+  biweekly: 26,
+  semimonthly: 24,
+  monthly: 12,
 };

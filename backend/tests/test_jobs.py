@@ -469,3 +469,68 @@ class TestPermissions:
             f"{API}/jobs/{job['id']}/end", json={}, headers=general_user
         )
         assert response.status_code == 403
+
+
+class TestAnalytics:
+    """The far end of the funnel: offers that became work."""
+
+    def test_analytics_reports_the_job_outcome(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        _job(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            status="active",
+            start_date=person_today().isoformat(),
+            annual_amount=180000,
+        )
+        _job(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            status="offered",
+            annual_amount=200000,
+        )
+
+        analytics = client.get(
+            f"{API}/analytics", params={"period": "all_time"}, headers=cast["headers"]
+        ).json()
+        jobs = analytics["jobs"]
+        assert jobs["live_jobs"] == 1
+        assert jobs["offers_open"] == 1
+        assert jobs["jobs_started"] == 1
+        # An offer is not income.
+        assert jobs["total_annual"] == 180000
+
+    def test_an_ended_job_is_counted_as_ended(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        job = _job(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            status="active",
+            start_date=person_today().isoformat(),
+            annual_amount=120000,
+        )
+        client.post(
+            f"{API}/jobs/{job['id']}/end",
+            json={"end_date": person_today().isoformat(), "reason": "laid_off"},
+            headers=cast["headers"],
+        )
+        analytics = client.get(
+            f"{API}/analytics", params={"period": "all_time"}, headers=cast["headers"]
+        ).json()
+        assert analytics["jobs"]["jobs_ended"] == 1
+        assert analytics["jobs"]["live_jobs"] == 0
+        assert analytics["jobs"]["total_annual"] == 0
+
+    def test_no_jobs_is_zeroes_not_a_missing_block(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        analytics = client.get(
+            f"{API}/analytics", params={"period": "all_time"}, headers=cast["headers"]
+        ).json()
+        assert analytics["jobs"]["live_jobs"] == 0
+        assert analytics["jobs"]["total_annual"] == 0

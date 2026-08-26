@@ -146,6 +146,23 @@ class TimeSeriesPoint(BaseModel):
     offers: int = 0
 
 
+class JobOutcome(BaseModel):
+    """What the search actually produced, in the period.
+
+    Application-side metrics stop at "offer". This is the other end: offers
+    that turned into work, and what that work pays.
+    """
+
+    jobs_started: int
+    jobs_ended: int
+    offers_open: int
+    live_jobs: int
+    #: Annual pay across live jobs. Gross, and only jobs being worked — an
+    #: offer is not income.
+    total_annual: float
+    currency: str
+
+
 class AnalyticsOut(BaseModel):
     period: PeriodOut
     person_ids: list[str]
@@ -155,5 +172,6 @@ class AnalyticsOut(BaseModel):
     funnel: list[FunnelStep] = Field(default_factory=list)
     comparison: list[PersonComparisonRow] = Field(default_factory=list)
     trend: list[TimeSeriesPoint] = Field(default_factory=list)
+    jobs: JobOutcome | None = None
     #: Explains which anchor each block uses, so the UI can caption honestly.
     notes: dict[str, str] = Field(default_factory=dict)

@@ -30,7 +30,7 @@ import {
   Skeleton,
 } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
-import { formatDateOnly } from "@/lib/format";
+import { formatDateOnly, formatMoney } from "@/lib/format";
 import { usePersonFilter } from "@/lib/person-filter";
 import { useAnalytics, useWorkload } from "@/lib/queries";
 
@@ -211,6 +211,38 @@ export default function AnalyticsPage() {
             </CardBody>
           </Card>
 
+          {/* Where the search actually got to. The funnel stops at "offer";
+              this is the other end — offers that turned into work. */}
+          {data.jobs ? (
+            <Card>
+              <CardHeader
+                title="Jobs from this search"
+                description="Counted by when a job started or ended. The pay figure is present-tense — what is being earned now, gross."
+              />
+              <CardBody>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                  <JobStat label="Started" value={String(data.jobs.jobs_started)} />
+                  <JobStat label="Ended" value={String(data.jobs.jobs_ended)} />
+                  <JobStat
+                    label="Offers open"
+                    value={String(data.jobs.offers_open)}
+                  />
+                  <JobStat label="Live jobs" value={String(data.jobs.live_jobs)} />
+                  <JobStat
+                    label="Annual, live"
+                    value={formatMoney(data.jobs.total_annual, data.jobs.currency, {
+                      compact: true,
+                    })}
+                  />
+                </div>
+                <p className="mt-2 text-[11px] text-subtle-foreground">
+                  Offers and ended jobs are excluded from the pay figure — an
+                  offer is not income, and an ended job has stopped being income.
+                </p>
+              </CardBody>
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 lg:grid-cols-2">
             {/* Funnel (spec §29) */}
             <Card>
@@ -346,6 +378,17 @@ export default function AnalyticsPage() {
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+function JobStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border p-2.5">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold tabular-nums text-foreground">
+        {value}
+      </p>
     </div>
   );
 }

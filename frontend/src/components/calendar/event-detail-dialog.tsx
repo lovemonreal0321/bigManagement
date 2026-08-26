@@ -23,7 +23,11 @@ import {
   NativeSelect,
   Skeleton,
 } from "@/components/ui/primitives";
-import { ApplicationPicker } from "@/components/applications/application-picker";
+import {
+  LinkTargetPicker,
+  type LinkTarget,
+} from "@/components/applications/link-target-picker";
+import { JourneyStrip } from "@/components/interviews/journey-strip";
 import { ReadOnlyNote } from "@/components/shared/read-only";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -33,6 +37,7 @@ import {
   formatTime,
 } from "@/lib/format";
 import {
+  useApplication,
   useCalendarEvent,
   useClassifyEvent,
   useCreateApplicationFromEvent,
@@ -63,6 +68,11 @@ export function EventDetailDialog({
   // Classifying and linking author records against the event's person.
   const editable = canEdit(event?.person_id);
   const classify = useClassifyEvent();
+  // The whole path this meeting belongs to, so the calendar answers "where are
+  // we with this company?" rather than just "what is this meeting?".
+  const journey = useApplication(event?.application_id ?? "", {
+    enabled: Boolean(event?.application_id),
+  });
   // Keyed by event id below, so switching events resets the flow without an
   // effect.
   const [mode, setMode] = React.useState<"none" | "link" | "create">("none");
@@ -109,6 +119,20 @@ export function EventDetailDialog({
                   {event.job_title}
                 </p>
               ) : null}
+
+              {journey.data ? (
+                <div className="pt-1">
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground">
+                    The path so far
+                  </p>
+                  <JourneyStrip
+                    appliedDate={journey.data.applied_date}
+                    stages={journey.data.stages}
+                    highlightStageId={event.interview_stage_id}
+                  />
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap gap-2 pt-1">
                 {event.application_id ? (
                   <Button asChild size="xs" variant="primary">
@@ -283,23 +307,41 @@ function LinkExistingForm({
 }) {
   const { data: types } = useInterviewTypes();
   const link = useLinkEvent();
-  const [applicationId, setApplicationId] = React.useState("");
+  const [target, setTarget] = React.useState<LinkTarget | null>(null);
+  // "next" creates a new round; "existing" hangs this meeting off the round
+  // that was picked — one round can span several sittings (spec §16).
+  const [mode, setMode] = React.useState<"next" | "existing">("next");
+
+  // The journey so far, so the round being added has visible context.
+  const journey = useApplication(target?.applicationId ?? "", {
+    enabled: Boolean(target?.applicationId),
+  });
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!target) return;
     const form = new FormData(event.currentTarget);
+    const attachToStage = mode === "existing" && target.stage;
+
     try {
       await link.mutateAsync({
         eventId,
         body: {
-          application_id: applicationId,
-          type_key: form.get("type_key") || undefined,
-          round_number: form.get("round_number")
-            ? Number(form.get("round_number"))
-            : undefined,
+          application_id: target.applicationId,
+          interview_stage_id: attachToStage ? target.stage!.stage_id : undefined,
+          type_key: attachToStage ? undefined : form.get("type_key") || undefined,
+          round_number: attachToStage
+            ? undefined
+            : form.get("round_number")
+              ? Number(form.get("round_number"))
+              : undefined,
         },
       });
-      toast.success("Event linked to the application");
+      toast.success(
+        attachToStage
+          ? `Added to ${target.stage!.stage_badge}`
+          : "Event linked to the application",
+      );
       onDone();
     } catch (error) {
       toast.error(
@@ -313,38 +355,107 @@ function LinkExistingForm({
       onSubmit={submit}
       className="space-y-3 rounded-md border border-border p-3"
     >
-      <Field label="Application">
-        <ApplicationPicker
+      <Field label="Application or interview">
+        <LinkTargetPicker
           personId={personId}
           personName={personName}
-          value={applicationId}
-          onChange={setApplicationId}
+          value={target}
+          onChange={(next) => {
+            setTarget(next);
+            // Picking an interview usually means "this follows on from that",
+            // so default to a new round either way.
+            setMode("next");
+          }}
           autoFocus
         />
       </Field>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Interview type" htmlFor="link-type">
-          <NativeSelect id="link-type" name="type_key" defaultValue="">
-            <option value="">Detect automatically</option>
-            {(types ?? []).map((type) => (
-              <option key={type.key} value={type.key}>
-                {type.label}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-        <Field label="Round" htmlFor="link-round" hint="(optional)">
-          <Input
-            id="link-round"
-            name="round_number"
-            type="number"
-            min={1}
-            max={20}
-            placeholder="2"
-          />
-        </Field>
-      </div>
+      {target ? (
+        <>
+          {journey.data ? (
+            <div className="rounded-md border border-border bg-surface-muted/40 p-2.5">
+              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground">
+                Where this sits
+              </p>
+              <JourneyStrip
+                appliedDate={journey.data.applied_date}
+                stages={journey.data.stages}
+                highlightStageId={
+                  mode === "existing" ? target.stage?.stage_id : null
+                }
+              />
+            </div>
+          ) : null}
+
+          <Field label="This meeting is">
+            <div className="space-y-1.5">
+              <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm hover:bg-surface-hover">
+                <input
+                  type="radio"
+                  name="link-mode"
+                  checked={mode === "next"}
+                  onChange={() => setMode("next")}
+                  className="mt-0.5 accent-[var(--primary)]"
+                />
+                <span>
+                  <span className="text-foreground">
+                    the next round (R{target.nextRoundNumber})
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Adds a new step to this application&apos;s journey.
+                  </span>
+                </span>
+              </label>
+
+              {target.stage ? (
+                <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm hover:bg-surface-hover">
+                  <input
+                    type="radio"
+                    name="link-mode"
+                    checked={mode === "existing"}
+                    onChange={() => setMode("existing")}
+                    className="mt-0.5 accent-[var(--primary)]"
+                  />
+                  <span>
+                    <span className="text-foreground">
+                      part of {target.stage.stage_badge}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Another sitting of a round that already exists — a loop
+                      split over two days, say.
+                    </span>
+                  </span>
+                </label>
+              ) : null}
+            </div>
+          </Field>
+
+          {mode === "next" ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Interview type" htmlFor="link-type">
+                <NativeSelect id="link-type" name="type_key" defaultValue="">
+                  <option value="">Detect automatically</option>
+                  {(types ?? []).map((type) => (
+                    <option key={type.key} value={type.key}>
+                      {type.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field label="Round" htmlFor="link-round">
+                <Input
+                  id="link-round"
+                  name="round_number"
+                  type="number"
+                  min={1}
+                  max={20}
+                  defaultValue={target.nextRoundNumber}
+                />
+              </Field>
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       <div className="flex justify-end gap-2">
         <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
@@ -355,7 +466,7 @@ function LinkExistingForm({
           size="sm"
           variant="primary"
           loading={link.isPending}
-          disabled={!applicationId}
+          disabled={!target}
         >
           Link event
         </Button>

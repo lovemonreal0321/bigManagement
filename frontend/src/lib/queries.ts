@@ -32,10 +32,13 @@ import type {
   FollowUp,
   FollowUpBoard,
   FollowUpSuggestion,
+  InterviewSearchResult,
   InterviewStage,
   ImapHostSuggestion,
   InterviewSuggestion,
   InterviewType,
+  Job,
+  JobSummary,
   Page,
   PersonWithStats,
   Pipeline,
@@ -87,6 +90,11 @@ export const queryKeys = {
   activity: (personIds: PersonIds, applicationId?: string) =>
     ["activity", scope(personIds), applicationId ?? "all"] as const,
   users: ["users"] as const,
+  jobs: (personIds: PersonIds, includeEnded: boolean) =>
+    ["jobs", scope(personIds), includeEnded] as const,
+  jobSummary: (personIds: PersonIds) => ["jobs", "summary", scope(personIds)] as const,
+  interviewSearch: (personIds: PersonIds, search: string) =>
+    ["interviews", "search", scope(personIds), search] as const,
   sheet: (
     personIds: PersonIds,
     personId: string | null,
@@ -246,6 +254,78 @@ export function useSheet(
     // sheet does not blank out on every letter typed.
     placeholderData: (previous) => previous,
   });
+}
+
+/** Past interviews, to hang a later round off one of them. */
+export function useInterviewSearch(personIds: PersonIds, search = "") {
+  return useQuery({
+    queryKey: queryKeys.interviewSearch(personIds, search),
+    queryFn: () =>
+      api.get<InterviewSearchResult[]>("/interviews/search", {
+        ...personParams(personIds),
+        q: search || undefined,
+        limit: 25,
+      }),
+    placeholderData: (previous) => previous,
+  });
+}
+
+// --------------------------------------------------------------------------
+// Jobs
+// --------------------------------------------------------------------------
+
+export function useJobs(personIds: PersonIds, includeEnded = true) {
+  return useQuery({
+    queryKey: queryKeys.jobs(personIds, includeEnded),
+    queryFn: () =>
+      api.get<Job[]>("/jobs", {
+        ...personParams(personIds),
+        include_ended: includeEnded,
+      }),
+  });
+}
+
+export function useJobSummary(personIds: PersonIds) {
+  return useQuery({
+    queryKey: queryKeys.jobSummary(personIds),
+    queryFn: () => api.get<JobSummary>("/jobs/summary", personParams(personIds)),
+  });
+}
+
+function useJobMutation<TVars>(fn: (vars: TVars) => Promise<unknown>) {
+  const client = useQueryClient();
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["jobs"] });
+      invalidate();
+    },
+  });
+}
+
+export function useCreateJob() {
+  return useJobMutation((body: Record<string, unknown>) =>
+    api.post<Job>("/jobs", body),
+  );
+}
+
+export function useUpdateJob() {
+  return useJobMutation(
+    ({ id, body }: { id: string; body: Record<string, unknown> }) =>
+      api.patch<Job>(`/jobs/${id}`, body),
+  );
+}
+
+export function useEndJob() {
+  return useJobMutation(
+    ({ id, body }: { id: string; body: Record<string, unknown> }) =>
+      api.post<Job>(`/jobs/${id}/end`, body),
+  );
+}
+
+export function useDeleteJob() {
+  return useJobMutation((id: string) => api.del(`/jobs/${id}`));
 }
 
 export function useFilterOptions() {

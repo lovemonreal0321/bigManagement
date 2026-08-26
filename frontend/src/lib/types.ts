@@ -606,6 +606,16 @@ export interface TimeSeriesPoint {
   offers: number;
 }
 
+export interface JobOutcome {
+  jobs_started: number;
+  jobs_ended: number;
+  offers_open: number;
+  live_jobs: number;
+  /** Live jobs only, gross. An offer is not income. */
+  total_annual: number;
+  currency: string;
+}
+
 export interface Analytics {
   period: { key: string; label: string; start: string | null; end: string | null };
   person_ids: string[];
@@ -615,6 +625,7 @@ export interface Analytics {
   funnel: FunnelStep[];
   comparison: PersonComparisonRow[];
   trend: TimeSeriesPoint[];
+  jobs: JobOutcome | null;
   notes: Record<string, string>;
 }
 
@@ -953,4 +964,144 @@ export interface BulkApplicationRow {
 export interface BulkApplicationResult {
   created: number;
   application_ids: string[];
+}
+
+// --------------------------------------------------------------------------
+// Interview search — finding a past round to hang a later one off
+// --------------------------------------------------------------------------
+
+export interface InterviewSearchResult {
+  stage_id: string;
+  application_id: string;
+  person_id: string;
+  company_name: string;
+  job_title: string;
+  stage_name: string;
+  stage_badge: string;
+  type_key: string;
+  round_number: number | null;
+  sequence: number;
+  status: InterviewStatus;
+  outcome: InterviewOutcome;
+  scheduled_start: string | null;
+  result_date: string | null;
+  event_count: number;
+  /** The round a following interview would take on this application. */
+  next_round_number: number;
+}
+
+// --------------------------------------------------------------------------
+// Jobs
+// --------------------------------------------------------------------------
+
+export const JOB_STATUSES = [
+  "offered",
+  "accepted",
+  "active",
+  "ended",
+  "declined",
+] as const;
+export type JobStatus = (typeof JOB_STATUSES)[number];
+
+export const JOB_TYPES = [
+  "full_time",
+  "part_time",
+  "contract",
+  "freelance",
+  "internship",
+  "temporary",
+] as const;
+export type JobType = (typeof JOB_TYPES)[number];
+
+export const JOB_END_REASONS = [
+  "resigned",
+  "laid_off",
+  "contract_ended",
+  "terminated",
+  "other",
+] as const;
+export type JobEndReason = (typeof JOB_END_REASONS)[number];
+
+export const SALARY_TYPES = ["annual", "hourly"] as const;
+export type SalaryType = (typeof SALARY_TYPES)[number];
+
+export const PAY_PERIODS = [
+  "weekly",
+  "biweekly",
+  "semimonthly",
+  "monthly",
+] as const;
+export type PayPeriod = (typeof PAY_PERIODS)[number];
+
+export interface PayDate {
+  date: string;
+  amount: number | null;
+  is_next: boolean;
+}
+
+export interface Job {
+  id: string;
+  person_id: string;
+  workspace_id: string;
+  company_name: string;
+  title: string;
+  job_type: JobType;
+  status: JobStatus;
+  location: string | null;
+
+  offered_date: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  end_reason: JobEndReason | null;
+  end_note: string | null;
+
+  salary_type: SalaryType;
+  annual_amount: number | null;
+  hourly_amount: number | null;
+  currency: string;
+  hours_per_week: number;
+  weeks_per_year: number;
+
+  pay_period: PayPeriod;
+  first_pay_date: string | null;
+
+  application_id: string | null;
+  interview_stage_id: string | null;
+  notes: string | null;
+  created_at: string | null;
+
+  person_name: string;
+  person_color: string;
+  person_initials: string;
+  /** One cheque, gross. Net would need a tax position this app does not know. */
+  gross_per_paycheck: number | null;
+  upcoming_pay_dates: PayDate[];
+  next_pay_date: string | null;
+  tenure_days: number | null;
+  is_live: boolean;
+  application_company: string | null;
+  stage_badge: string | null;
+}
+
+export interface JobPersonSummary {
+  person_id: string;
+  person_name: string;
+  person_color: string;
+  person_initials: string;
+  live_count: number;
+  total_annual: number;
+  next_pay_date: string | null;
+}
+
+export interface JobSummary {
+  live_count: number;
+  offered_count: number;
+  ended_count: number;
+  /** Live jobs only — an offer is not income, and an ended job is not either. */
+  total_annual: number;
+  currency: string;
+  next_pay_date: string | null;
+  next_pay_amount: number | null;
+  next_pay_job_id: string | null;
+  by_person: JobPersonSummary[];
 }

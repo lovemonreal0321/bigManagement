@@ -168,7 +168,7 @@ backend/
 frontend/
   src/
     app/         routes: dashboard, calendar, applications, follow-ups,
-                 analytics, people, settings, login
+                 jobs, analytics, people, settings, login
     components/  ui primitives, shared badges, and one folder per feature
     lib/         api client, query hooks, types, formatting, calendar geometry
 ```
@@ -250,14 +250,57 @@ Day grouping happens on the server rather than in the browser, because
 `applied_date` is anchored to the *person's* timezone. Regrouping client-side
 would re-date every row into whatever zone the viewer's laptop is in.
 
+### Jobs
+
+An application is an opportunity being pursued; a **job** is income being
+earned. They are separate records because they outlive each other — an
+application can be archived while the job it won runs for years, and a job can
+exist with no application behind it. Linking one to the other is optional, and
+archiving the application never deletes the job.
+
+Each person can hold several jobs at once, and a job carries its type, status,
+start date, pay and payday schedule.
+
+- **Pay is quoted either way.** Type an annual salary and the hourly rate
+  follows; type an hourly rate and the annual follows. Either can be typed over
+  — the conversion is a convenience, not a rule.
+- **The conversion basis is on screen**, not assumed. 40 hours over 52 weeks is
+  only right for a full-time year, so hours/week and weeks/year are per job and
+  changing either moves the derived figure.
+- **Paydays are projected** from the first pay date and the period. Twice-a-month
+  is 24 cheques a year, not 26 — noticeably larger than fortnightly on the same
+  salary. A payday on the 31st clamps to the 28th/30th rather than skipping
+  February.
+- **Only live jobs count as income.** An offer is not money and an ended job has
+  stopped being money, so neither is in the total. Figures are **gross** — this
+  app knows nothing about anyone's tax position, and a confidently wrong net
+  figure is worse than none.
+- **Ending a job is its own action** and records why. Resigned and laid off are
+  not the same story to tell later, and the history survives either way.
+
+**Analytics** gains a *Jobs from this search* block: jobs started and ended in
+the period, offers still open, and what is being earned now — the far end of a
+funnel that otherwise stops at "offer".
+
 ### Linking a calendar event to an application
 
 Opening an imported event on the Calendar offers **Link existing application**.
-The picker searches as you type — company, job title, notes, location or person,
-the same matcher the sheet uses — rather than making you scroll a dropdown of
-everything that person has applied to. Arrow keys move, Enter chooses, and the
-matched text is highlighted so a long list is quick to scan. Only that person's
-applications are offered, because an interview belongs to one of them.
+One search box covers two things: applications, and the interviews already
+recorded against them. Searching interviews is what a later round needs —
+"the Anthropic recruiter screen" is how people refer to where they are in a
+process, not by the application row behind it.
+
+Once a target is picked, the journey so far is drawn (**Applied → R1 → R2 …**,
+with each round's outcome), and the event becomes either:
+
+- **the next round** — a new step, with the round number already worked out; or
+- **part of an existing round** — another sitting of a round that already
+  exists, for a loop split over two days.
+
+That same journey strip appears on any already-linked event, so the calendar
+answers "where are we with this company?" rather than just "what is this
+meeting?". Only the event's own person is searched, because an interview belongs
+to one of them.
 
 ### Calendar is the source of truth
 
