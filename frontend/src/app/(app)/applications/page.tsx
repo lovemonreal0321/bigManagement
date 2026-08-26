@@ -46,6 +46,7 @@ import {
   formatDate,
   formatDaysAgo,
   formatSalary,
+  todayIso,
   WORK_MODE_LABELS,
 } from "@/lib/format";
 import { usePersonFilter } from "@/lib/person-filter";
@@ -90,6 +91,11 @@ export default function ApplicationsPage() {
   const [sheetSearch, setSheetSearch] = React.useState("");
   const [sheetDebounced, setSheetDebounced] = React.useState("");
   const [sheetArchived, setSheetArchived] = React.useState(false);
+  // `undefined` means "not chosen yet", so the sheet can open on today without
+  // clobbering an explicit "All" — which is `null`.
+  const [sheetDay, setSheetDay] = React.useState<string | null | undefined>(
+    undefined,
+  );
   const [search, setSearch] = React.useState("");
   const [debounced, setDebounced] = React.useState("");
   const [statuses, setStatuses] = React.useState<string[]>(() => {
@@ -147,7 +153,22 @@ export default function ApplicationsPage() {
     return () => clearTimeout(timer);
   }, [sheetSearch]);
 
-  const sheet = useSheet(queryIds, resolvedPerson, sheetDebounced, sheetArchived);
+  // "Today" has to mean today where the *person* is, not where the viewer is:
+  // that is the zone their applications were dated in.
+  const sheetToday = todayIso(
+    people.find((person) => person.id === resolvedPerson)?.timezone,
+  );
+  // The sheet opens on today, so the blank row is reachable without scrolling
+  // past a long history. "All" is one click away.
+  const resolvedDay = sheetDay === undefined ? sheetToday : sheetDay;
+
+  const sheet = useSheet(
+    queryIds,
+    resolvedPerson,
+    sheetDebounced,
+    sheetArchived,
+    resolvedDay,
+  );
 
   const activeFilterCount =
     statuses.length +
@@ -383,6 +404,9 @@ export default function ApplicationsPage() {
             onSearchChange={setSheetSearch}
             includeArchived={sheetArchived}
             onIncludeArchivedChange={setSheetArchived}
+            day={resolvedDay}
+            onDayChange={setSheetDay}
+            today={sheetToday}
           />
         )
       ) : view === "pipeline" ? (

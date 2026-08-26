@@ -236,3 +236,27 @@ class ApplicationSheet(BaseModel):
     total: int
     busiest_day: date | None = None
     busiest_day_count: int = 0
+    #: The single day being shown, or `None` for every day.
+    day: date | None = None
+    #: True when a `day` was asked for but a search overrode it, so the UI can
+    #: say why more than one day is on screen.
+    search_ignored_day: bool = False
+
+
+class BulkApplicationRow(BaseModel):
+    """One row of a paste. Only the company is required."""
+
+    company_name: str = Field(min_length=1, max_length=255)
+    job_title: str | None = Field(default=None, max_length=255)
+    job_url: str | None = None
+    applied_date: date | None = None
+
+
+class BulkApplicationCreate(BaseModel):
+    person_id: str
+    rows: list[BulkApplicationRow] = Field(min_length=1, max_length=500)
+
+
+class BulkApplicationResult(BaseModel):
+    created: int
+    application_ids: list[str]

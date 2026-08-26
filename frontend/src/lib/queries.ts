@@ -15,6 +15,8 @@ import type {
   AiExtraction,
   AiModels,
   ApplicationSheet,
+  BulkApplicationResult,
+  BulkApplicationRow,
   AuthUser,
   AiStatus,
   Analytics,
@@ -85,8 +87,22 @@ export const queryKeys = {
   activity: (personIds: PersonIds, applicationId?: string) =>
     ["activity", scope(personIds), applicationId ?? "all"] as const,
   users: ["users"] as const,
-  sheet: (personIds: PersonIds, personId: string | null, search: string, archived: boolean) =>
-    ["applications", "sheet", scope(personIds), personId ?? "first", search, archived] as const,
+  sheet: (
+    personIds: PersonIds,
+    personId: string | null,
+    search: string,
+    archived: boolean,
+    day: string | null,
+  ) =>
+    [
+      "applications",
+      "sheet",
+      scope(personIds),
+      personId ?? "first",
+      search,
+      archived,
+      day ?? "all",
+    ] as const,
 };
 
 /** Invalidate everything that can be affected by a write. */
@@ -214,15 +230,17 @@ export function useSheet(
   personId: string | null,
   search = "",
   includeArchived = false,
+  day: string | null = null,
 ) {
   return useQuery({
-    queryKey: queryKeys.sheet(personIds, personId, search, includeArchived),
+    queryKey: queryKeys.sheet(personIds, personId, search, includeArchived, day),
     queryFn: () =>
       api.get<ApplicationSheet>("/applications/sheet", {
         person_ids: personIds,
         person_id: personId ?? undefined,
         q: search || undefined,
         include_archived: includeArchived || undefined,
+        day: day ?? undefined,
       }),
     // Keep the previous grid on screen while a keystroke re-queries, so the
     // sheet does not blank out on every letter typed.
@@ -246,6 +264,16 @@ export function useCreateApplication() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       api.post<Application>("/applications", body),
+    onSuccess: invalidate,
+  });
+}
+
+/** Paste a block of rows out of a spreadsheet. One request, one transaction. */
+export function useBulkCreateApplications() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (body: { person_id: string; rows: BulkApplicationRow[] }) =>
+      api.post<BulkApplicationResult>("/applications/bulk", body),
     onSuccess: invalidate,
   });
 }

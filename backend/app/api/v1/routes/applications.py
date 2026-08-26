@@ -20,6 +20,8 @@ from app.schemas.application import (
     ApplicationSheet,
     ApplicationStatusUpdate,
     ApplicationUpdate,
+    BulkApplicationCreate,
+    BulkApplicationResult,
     PipelineOut,
 )
 from app.schemas.common import OkResponse, Page
@@ -134,6 +136,10 @@ def get_sheet(
     q: str | None = Query(
         None, description="Substring match on company, job title, notes or person"
     ),
+    day: Annotated[
+        date | None,
+        Query(description="Show only this date. Ignored while `q` is set."),
+    ] = None,
     include_archived: bool = False,
 ) -> ApplicationSheet:
     """The spreadsheet view: one tab per person, rows grouped by day applied.
@@ -148,6 +154,7 @@ def get_sheet(
         person_id=person_id,
         editable_person_ids=permissions.editable_person_ids(user),
         search=q,
+        day=day,
         include_archived=include_archived,
     )
 
@@ -174,6 +181,20 @@ def create_application(
     )
     application = app_service.create_application(db, workspace, payload)
     return app_service.decorate_applications(db, workspace, [application])[0]
+
+
+@router.post("/bulk", response_model=BulkApplicationResult, status_code=201)
+def bulk_create_applications(
+    payload: BulkApplicationCreate,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    user: CurrentUser,
+) -> BulkApplicationResult:
+    """Create many applications at once — used by pasting rows from a spreadsheet."""
+    permissions.require_person_edit(
+        user, payload.person_id, what="this person's applications"
+    )
+    return app_service.bulk_create(db, workspace, payload)
 
 
 @router.get("/{application_id}", response_model=ApplicationDetail)

@@ -936,4 +936,21 @@ export interface ApplicationSheet {
   total: number;
   busiest_day: string | null;
   busiest_day_count: number;
+  /** The single day being shown, or `null` for every day. */
+  day: string | null;
+  /** A day was asked for but the search overrode it and looked everywhere. */
+  search_ignored_day: boolean;
+}
+
+/** One pasted row. Only the company is required. */
+export interface BulkApplicationRow {
+  company_name: string;
+  job_title?: string | null;
+  job_url?: string | null;
+  applied_date?: string | null;
+}
+
+export interface BulkApplicationResult {
+  created: number;
+  application_ids: string[];
 }

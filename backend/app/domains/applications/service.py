@@ -40,6 +40,8 @@ from app.schemas.application import (
     ApplicationOut,
     ApplicationSheet,
     ApplicationUpdate,
+    BulkApplicationCreate,
+    BulkApplicationResult,
     NextInterviewSummary,
     PipelineCard,
     PipelineColumnOut,
@@ -441,6 +443,7 @@ def build_sheet(
     person_id: str | None,
     editable_person_ids: set[str] | None,
     search: str | None = None,
+    day: date | None = None,
     include_archived: bool = False,
 ) -> ApplicationSheet:
     """One person's applications as a spreadsheet, grouped by the day applied.
@@ -450,9 +453,14 @@ def build_sheet(
     Regrouping client-side would re-date every row into whatever zone the
     viewer's laptop happens to be in.
 
-    Every row for the person is returned. A job search does not reach a size
-    where a spreadsheet needs paging, and a partially filled one would make the
-    per-day counts wrong — which is the whole point of the view.
+    `day` narrows to a single date, so someone with hundreds of rows does not
+    scroll past all of them to reach the blank row at the bottom. A search
+    overrides it and looks across every day — when you are hunting for a company
+    you rarely remember which day you filed it.
+
+    Within whatever is shown, every row is returned. A job search does not reach
+    a size where a spreadsheet needs paging, and a partially filled one would
+    make the per-day counts wrong — which is the whole point of the view.
     """
     def can_edit(pid: str) -> bool:
         return editable_person_ids is None or pid in editable_person_ids
@@ -491,9 +499,16 @@ def build_sheet(
             tabs=[], person_id=None, can_edit=False, days=[], matched=0, total=0
         )
 
+    # A search looks across every day; the date filter applies only while the
+    # user is browsing rather than hunting.
+    searching = bool(search and search.strip())
+    day_filter = None if searching else day
+
     filters = ApplicationFilters(
         person_ids=[active],
         search=search or None,
+        applied_from=day_filter,
+        applied_to=day_filter,
         include_archived=include_archived,
         sort="applied_date",
     )
@@ -554,6 +569,60 @@ def build_sheet(
         total=totals.get(active, 0),
         busiest_day=busiest.date if busiest else None,
         busiest_day_count=busiest.count if busiest else 0,
+        day=day_filter,
+        search_ignored_day=bool(searching and day is not None),
+    )
+
+
+def bulk_create(
+    db: Session, workspace: Workspace, payload: BulkApplicationCreate
+) -> BulkApplicationResult:
+    """Create many applications at once, as one transaction.
+
+    This exists for pasting a block of rows out of a spreadsheet. It commits
+    once rather than per row, so a failure halfway through leaves nothing
+    behind — half a paste would be worse than none, because the user cannot
+    tell which half landed.
+    """
+    person = db.get(Person, payload.person_id)
+    if person is None or person.workspace_id != workspace.id:
+        raise NotFoundError("That person could not be found.", code="person_not_found")
+
+    today = local_date(utcnow(), person.timezone)
+    created: list[Application] = []
+
+    for row in payload.rows:
+        application = Application(
+            workspace_id=workspace.id,
+            person_id=person.id,
+            company_name=row.company_name.strip(),
+            # The sheet has no job-title column, so a pasted row rarely carries
+            # one. Same placeholder the blank row uses.
+            job_title=(row.job_title or "").strip() or "Untitled role",
+            job_url=row.job_url,
+            applied_date=row.applied_date or today,
+            status=ApplicationStatus.APPLIED.value,
+            last_activity_at=utcnow(),
+        )
+        db.add(application)
+        created.append(application)
+
+    db.flush()
+
+    for application in created:
+        activity_service.log(
+            db,
+            workspace_id=workspace.id,
+            activity_type=ActivityType.APPLICATION_CREATED,
+            message=f"{application.company_name} was added for {person.display_name}",
+            person_id=person.id,
+            application_id=application.id,
+            meta={"bulk": True},
+        )
+
+    db.commit()
+    return BulkApplicationResult(
+        created=len(created), application_ids=[a.id for a in created]
     )
 
 

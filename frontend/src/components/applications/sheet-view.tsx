@@ -18,6 +18,7 @@ import {
   Archive,
   ArchiveRestore,
   ArrowUpRight,
+  CalendarDays,
   Loader2,
   Plus,
   Search,
@@ -31,7 +32,9 @@ import { toast } from "sonner";
 import { ReadOnlyNote } from "@/components/shared/read-only";
 import { Tooltip } from "@/components/ui/overlays";
 import { EmptyState, Input, Skeleton } from "@/components/ui/primitives";
+import { PasteDialog } from "@/components/applications/paste-dialog";
 import { ApiError } from "@/lib/api";
+import { parsePaste, type ParsedPaste } from "@/lib/paste-grid";
 import { cn } from "@/lib/utils";
 import { APPLICATION_STATUS_LABELS } from "@/lib/format";
 import {
@@ -96,6 +99,9 @@ export function SheetView({
   onSearchChange,
   includeArchived,
   onIncludeArchivedChange,
+  day,
+  onDayChange,
+  today,
 }: {
   sheet: ApplicationSheet | undefined;
   loading?: boolean;
@@ -104,6 +110,11 @@ export function SheetView({
   onSearchChange: (value: string) => void;
   includeArchived: boolean;
   onIncludeArchivedChange: (value: boolean) => void;
+  /** The day being shown, or `null` for every day. */
+  day: string | null;
+  onDayChange: (day: string | null) => void;
+  /** Today in this person's timezone, not the viewer's. */
+  today: string;
 }) {
   const createApplication = useCreateApplication();
   const updateApplication = useUpdateApplication();
@@ -161,6 +172,33 @@ export function SheetView({
   // One create at a time: the auto-add timer, Enter and blur can otherwise
   // race and post the same row twice.
   const creatingRef = React.useRef(false);
+
+  // A pasted block waits here until the user confirms it.
+  const [pasted, setPasted] = React.useState<ParsedPaste | null>(null);
+
+  /**
+   * Intercept a paste that carries more than one cell.
+   *
+   * A plain single-value paste is left to the browser — it should behave like
+   * typing. Anything with a tab or a newline came from a spreadsheet and is
+   * offered as a block instead.
+   */
+  function handlePaste(event: React.ClipboardEvent, field: Field) {
+    const text = event.clipboardData.getData("text/plain");
+    if (!text || !/[\t\n]/.test(text)) return;
+
+    event.preventDefault();
+    const parsed = parsePaste(text, field);
+    if (parsed.rows.length === 0) {
+      toast.error(
+        parsed.skipped > 0
+          ? "Those rows have no company name, so there is nothing to add."
+          : "Nothing recognisable to paste.",
+      );
+      return;
+    }
+    setPasted(parsed);
+  }
 
   function beginEdit(row: SheetRow, field: Field) {
     if (!canEdit) return;
@@ -409,6 +447,60 @@ export function SheetView({
     <div className="flex flex-col">
       {/* Toolbar */}
       <div className="mb-2 flex flex-wrap items-center gap-2">
+        {/* Showing one day keeps the blank row within reach; without it a long
+            sheet has to be scrolled to the bottom before anything can be
+            added. */}
+        <div className="flex shrink-0 items-center gap-1 rounded-md border border-border p-0.5">
+          <button
+            type="button"
+            onClick={() => onDayChange(today)}
+            aria-pressed={day === today}
+            className={cn(
+              "rounded px-2 py-1 text-xs font-medium transition-colors",
+              day === today
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+            )}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => onDayChange(null)}
+            aria-pressed={day === null}
+            className={cn(
+              "rounded px-2 py-1 text-xs font-medium transition-colors",
+              day === null
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+            )}
+          >
+            All
+          </button>
+          <label className="relative inline-flex items-center">
+            <span className="sr-only">Show a specific day</span>
+            <CalendarDays
+              className={cn(
+                "pointer-events-none absolute left-1.5 size-3.5",
+                day && day !== today
+                  ? "text-primary-foreground"
+                  : "text-muted-foreground",
+              )}
+            />
+            <input
+              type="date"
+              value={day ?? ""}
+              onChange={(event) => onDayChange(event.target.value || null)}
+              className={cn(
+                "h-[26px] w-[8.5rem] rounded bg-transparent pl-6 pr-1 text-xs focus:outline-none focus:ring-1 focus:ring-inset focus:ring-ring",
+                day && day !== today
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground",
+              )}
+            />
+          </label>
+        </div>
+
         <div className="relative min-w-56 flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" />
           <Input
@@ -435,6 +527,14 @@ export function SheetView({
             <>
               <span className="font-medium text-foreground">{sheet.matched}</span>{" "}
               of {sheet.total} matching
+              {/* A search deliberately ignores the day filter — you rarely
+                  remember which day you filed a given company. */}
+              {sheet.search_ignored_day ? " across all days" : null}
+            </>
+          ) : sheet.day ? (
+            <>
+              <span className="font-medium text-foreground">{sheet.matched}</span>{" "}
+              on this day · {sheet.total} in total
             </>
           ) : (
             <>
@@ -571,6 +671,7 @@ export function SheetView({
                             onKeyDown={(event) =>
                               handleKeyDown(event, row, column.field)
                             }
+                            onPaste={(event) => handlePaste(event, column.field)}
                             onBlur={() => handleBlur(row, column.field)}
                           />
                         </td>
@@ -663,6 +764,7 @@ export function SheetView({
                       }}
                       onChange={(event) => setDraft(event.target.value)}
                       onKeyDown={(event) => handleKeyDown(event, null, column.field)}
+                      onPaste={(event) => handlePaste(event, column.field)}
                       onBlur={() => handleBlur(null, column.field)}
                       className="h-8 w-full bg-transparent px-2 text-sm text-foreground placeholder:text-subtle-foreground focus:bg-primary/5 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-primary"
                       aria-label={`New application — ${column.label}`}
@@ -683,6 +785,16 @@ export function SheetView({
         </table>
       </div>
 
+      <PasteDialog
+        parsed={pasted}
+        personId={personId}
+        personName={
+          sheet.tabs.find((tab) => tab.person_id === (personId ?? sheet.person_id))
+            ?.name ?? "this person"
+        }
+        onClose={() => setPasted(null)}
+      />
+
     </div>
   );
 }
@@ -699,6 +811,7 @@ function SheetCell({
   onDraftChange,
   onBeginEdit,
   onKeyDown,
+  onPaste,
   onBlur,
 }: {
   row: SheetRow;
@@ -710,6 +823,7 @@ function SheetCell({
   onDraftChange: (value: string) => void;
   onBeginEdit: () => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  onPaste: (event: React.ClipboardEvent<HTMLInputElement>) => void;
   onBlur: () => void;
 }) {
   if (editing) {
@@ -720,6 +834,7 @@ function SheetCell({
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         onBlur={onBlur}
         className="h-8 w-full bg-primary/5 px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-inset focus:ring-primary"
         aria-label={`${field.replace(/_/g, " ")} for ${row.company_name}`}

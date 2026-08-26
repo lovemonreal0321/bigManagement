@@ -49,7 +49,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             <TooltipProvider delayDuration={250}>
               {children}
               <Toaster
-                position="bottom-right"
+                position="top-right"
                 toastOptions={{
                   classNames: {
                     toast:

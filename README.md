@@ -224,10 +224,21 @@ the count on the band.
 - A company name is the only thing required; the date defaults to today *in that
   person's timezone*, and the job title is filled in as "Untitled role" for you
   to name later on the detail page.
-- **Search narrows one sheet** as you type — company, job title, notes or
-  person. The day counts follow the search, so the numbers always describe
-  what is on screen. Tab totals ignore it, so the tab bar holds still while you
-  type.
+- **The sheet opens on today.** `Today` / `All` buttons and a date picker sit
+  above the grid, so the blank row stays within reach instead of below a year of
+  history.
+- **Search deliberately ignores the day filter** and looks across every day —
+  hunting for a company, you rarely remember which day you filed it. The summary
+  says "across all days" when that happens. The day counts follow the search, so
+  the numbers always describe what is on screen; tab totals ignore it, so the tab
+  bar holds still while you type.
+- **Paste a block of rows straight from Google Sheets or Excel.** Copy the cells,
+  click the sheet cell to start from, and paste: columns fill rightward from
+  there, or are matched by name when the first row is a header. A preview shows
+  what will be created before anything is written — fifty rows are hard to undo.
+  Quoted cells containing commas or line breaks survive, and dates are read in
+  ISO, `19/08/2026`, `3/14/2026` or `19 Aug 2026` form. A single-value paste is
+  left alone and behaves like typing.
 - **Archive** sits at the end of each row, next to the link that opens the full
   application. Archived rows leave the sheet; tick **Show archived** to see them
   again, greyed and tagged, with the same button offering **Restore**.

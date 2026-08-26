@@ -134,6 +134,8 @@ class TestTabs:
             "total": 0,
             "busiest_day": None,
             "busiest_day_count": 0,
+            "day": None,
+            "search_ignored_day": False,
         }
 
 
@@ -426,3 +428,244 @@ class TestCellEdits:
         )
         assert updated["company_name"] == "Stripe Inc."
         assert updated["job_url"] == "https://stripe.com/jobs/9"
+
+
+class TestDayFilter:
+    """Narrowing to one day, so a long sheet does not have to be scrolled."""
+
+    def test_a_day_shows_only_that_day(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        sheet = _sheet(
+            client, cast["headers"], person_id=cast["john"]["id"], day="2026-08-18"
+        )
+        assert [d["date"] for d in sheet["days"]] == ["2026-08-18"]
+        assert sheet["matched"] == 1
+        assert sheet["day"] == "2026-08-18"
+
+    def test_the_total_still_counts_every_day(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """So the tab bar and the "of N" summary do not shrink with the filter."""
+        sheet = _sheet(
+            client, cast["headers"], person_id=cast["john"]["id"], day="2026-08-18"
+        )
+        assert sheet["total"] == 4
+
+    def test_a_day_with_nothing_is_empty_not_an_error(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        sheet = _sheet(
+            client, cast["headers"], person_id=cast["john"]["id"], day="2020-01-01"
+        )
+        assert sheet["days"] == []
+        assert sheet["matched"] == 0
+        assert sheet["total"] == 4
+
+    def test_omitting_the_day_shows_everything(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
+        assert len(sheet["days"]) == 2
+        assert sheet["day"] is None
+
+    def test_search_overrides_the_day_and_looks_everywhere(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """Hunting for a company, you rarely remember which day you filed it."""
+        sheet = _sheet(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            day="2026-08-19",
+            q="cloudflare",
+        )
+        # Cloudflare is on the 18th, not the requested 19th.
+        assert [r["company_name"] for d in sheet["days"] for r in d["rows"]] == [
+            "Cloudflare"
+        ]
+        assert sheet["search_ignored_day"] is True
+        assert sheet["day"] is None
+
+    def test_a_blank_search_does_not_override_the_day(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """Whitespace in the box is not a search."""
+        sheet = _sheet(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            day="2026-08-18",
+            q="   ",
+        )
+        assert [d["date"] for d in sheet["days"]] == ["2026-08-18"]
+        assert sheet["search_ignored_day"] is False
+
+    def test_no_day_means_no_override_flag(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"], q="amazon")
+        assert sheet["search_ignored_day"] is False
+
+
+class TestBulkPaste:
+    """Pasting a block of rows out of a spreadsheet."""
+
+    def _bulk(self, client: TestClient, headers: dict[str, str], body: dict):
+        return client.post(f"{API}/applications/bulk", json=body, headers=headers)
+
+    def test_many_rows_land_in_one_call(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        response = self._bulk(
+            client,
+            cast["headers"],
+            {
+                "person_id": cast["john"]["id"],
+                "rows": [
+                    {
+                        "company_name": "Vercel",
+                        "job_url": "https://vercel.com/careers/1",
+                        "applied_date": "2026-08-20",
+                    },
+                    {"company_name": "Linear", "applied_date": "2026-08-20"},
+                    {"company_name": "Notion"},
+                ],
+            },
+        )
+        assert response.status_code == 201, response.text
+        assert response.json()["created"] == 3
+
+        sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
+        companies = [r["company_name"] for d in sheet["days"] for r in d["rows"]]
+        assert {"Vercel", "Linear", "Notion"} <= set(companies)
+
+    def test_a_row_without_a_date_gets_today_in_the_persons_timezone(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        self._bulk(
+            client,
+            cast["headers"],
+            {"person_id": cast["john"]["id"], "rows": [{"company_name": "Undated Paste"}]},
+        )
+        sheet = _sheet(client, cast["headers"], person_id=cast["john"]["id"])
+        bucket = next(d for d in sheet["days"] if d["date"] == person_today().isoformat())
+        assert "Undated Paste" in [r["company_name"] for r in bucket["rows"]]
+
+    def test_a_row_without_a_title_gets_the_placeholder(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """The sheet has no job-title column, so a paste rarely carries one."""
+        response = self._bulk(
+            client,
+            cast["headers"],
+            {"person_id": cast["john"]["id"], "rows": [{"company_name": "No Title Co"}]},
+        )
+        application_id = response.json()["application_ids"][0]
+        detail = client.get(
+            f"{API}/applications/{application_id}", headers=cast["headers"]
+        ).json()
+        assert detail["job_title"] == "Untitled role"
+
+    def test_a_title_is_kept_when_the_paste_has_one(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        response = self._bulk(
+            client,
+            cast["headers"],
+            {
+                "person_id": cast["john"]["id"],
+                "rows": [{"company_name": "Titled Co", "job_title": "Staff Engineer"}],
+            },
+        )
+        detail = client.get(
+            f"{API}/applications/{response.json()['application_ids'][0]}",
+            headers=cast["headers"],
+        ).json()
+        assert detail["job_title"] == "Staff Engineer"
+
+    def test_an_empty_company_is_refused(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        response = self._bulk(
+            client,
+            cast["headers"],
+            {"person_id": cast["john"]["id"], "rows": [{"company_name": ""}]},
+        )
+        assert response.status_code == 422
+
+    def test_no_rows_is_refused(self, client: TestClient, cast: dict) -> None:
+        response = self._bulk(
+            client, cast["headers"], {"person_id": cast["john"]["id"], "rows": []}
+        )
+        assert response.status_code == 422
+
+    def test_a_huge_paste_is_capped(self, client: TestClient, cast: dict) -> None:
+        """A runaway paste should be refused, not chew through the database."""
+        response = self._bulk(
+            client,
+            cast["headers"],
+            {
+                "person_id": cast["john"]["id"],
+                "rows": [{"company_name": f"Co {i}"} for i in range(501)],
+            },
+        )
+        assert response.status_code == 422
+
+    def test_nothing_is_created_when_one_row_is_invalid(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """Half a paste is worse than none — the user cannot tell which half."""
+        before = _sheet(client, cast["headers"], person_id=cast["john"]["id"])["total"]
+        self._bulk(
+            client,
+            cast["headers"],
+            {
+                "person_id": cast["john"]["id"],
+                "rows": [{"company_name": "Good Co"}, {"company_name": ""}],
+            },
+        )
+        after = _sheet(client, cast["headers"], person_id=cast["john"]["id"])["total"]
+        assert after == before
+
+    def test_an_unknown_person_is_refused(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        response = self._bulk(
+            client,
+            cast["headers"],
+            {"person_id": "nobody", "rows": [{"company_name": "Ghost Co"}]},
+        )
+        assert response.status_code in (403, 404)
+
+    def test_a_general_user_cannot_paste_into_an_unassigned_person(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        client.post(
+            f"{API}/users",
+            json={
+                "username": "pasteuser",
+                "password": "paste-password",
+                "person_ids": [cast["john"]["id"]],
+            },
+            headers=cast["headers"],
+        )
+        token = client.post(
+            f"{API}/auth/login",
+            json={"username": "pasteuser", "password": "paste-password"},
+        ).json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        refused = self._bulk(
+            client,
+            headers,
+            {"person_id": cast["maria"]["id"], "rows": [{"company_name": "Nope Co"}]},
+        )
+        assert refused.status_code == 403
+
+        allowed = self._bulk(
+            client,
+            headers,
+            {"person_id": cast["john"]["id"], "rows": [{"company_name": "Fine Co"}]},
+        )
+        assert allowed.status_code == 201
