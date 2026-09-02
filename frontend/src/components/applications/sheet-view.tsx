@@ -95,6 +95,18 @@ const COLUMN_LABELS: Record<Field, string> = {
 const NEW_ROW = "__new__";
 
 /**
+ * The sheet body scrolls on its own so the toolbar above it — person, day,
+ * search, counts — stays put. Two hundred rows in a day is an ordinary volume
+ * here, and scrolling the whole page to reach them took the controls with it.
+ *
+ * The height is measured rather than hard-coded because what sits above the
+ * grid changes: the toolbar wraps on a narrow window, and the person tabs come
+ * and go.
+ */
+const MIN_GRID_HEIGHT = 260;
+const GRID_BOTTOM_GAP = 16;
+
+/**
  * A new row has no job title, because the sheet does not show one. Rather than
  * refuse the row, it is stored with this placeholder and can be named later on
  * the detail page.
@@ -107,6 +119,34 @@ const UNTITLED = "Untitled role";
  * row appeared on its own.
  */
 const AUTO_ADD_DELAY_MS = 1200;
+
+/**
+ * How much of a position is shown before it is cut short.
+ *
+ * Long titles ("Senior Staff Software Engineer, Platform Infrastructure") push
+ * every other column off the screen on a sheet that is mostly being scanned
+ * for companies and dates. The full text stays in the cell's tooltip and in the
+ * input the moment the cell is opened, so nothing is lost.
+ */
+const TITLE_LIMIT = 20;
+
+function shorten(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= TITLE_LIMIT) return trimmed;
+
+  // Cut at the last word that fits, so "ML Infrastructure Engineer" ends at
+  // "ML Infrastructure…" rather than "ML Infrastructure En…". A single very
+  // long word has no boundary to find, so it is cut where it falls.
+  const clipped = trimmed.slice(0, TITLE_LIMIT);
+  const lastSpace = clipped.lastIndexOf(" ");
+  const cut = lastSpace >= TITLE_LIMIT * 0.6 ? clipped.slice(0, lastSpace) : clipped;
+  return `${cut.trimEnd()}…`;
+}
+
+/** Whether this row has a position someone actually gave it. */
+function hasTitle(row: SheetRow): boolean {
+  return Boolean(row.job_title) && row.job_title !== UNTITLED;
+}
 
 type Cell = { rowId: string; field: Field };
 
@@ -173,6 +213,37 @@ export function SheetView({
   // Ctrl+Z, but never while a cell is being typed into — that field has its
   // own undo and stealing it would be worse than not offering the shortcut.
   useUndoShortcut(runUndo, canUndo);
+
+  const gridRef = React.useRef<HTMLDivElement>(null);
+  const [gridHeight, setGridHeight] = React.useState<number | null>(null);
+
+  React.useLayoutEffect(() => {
+    const element = gridRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      const next = Math.max(
+        MIN_GRID_HEIGHT,
+        window.innerHeight -
+          element.getBoundingClientRect().top -
+          GRID_BOTTOM_GAP,
+      );
+      // Bailing out on an unchanged value matters: the observer below watches
+      // the body, and the body's height is what this changes.
+      setGridHeight((current) =>
+        current !== null && Math.abs(current - next) < 1 ? current : next,
+      );
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
 
   const [editing, setEditing] = React.useState<Cell | null>(null);
   const [draft, setDraft] = React.useState("");
@@ -264,7 +335,9 @@ export function SheetView({
   function currentValue(row: SheetRow, field: Field): string {
     if (field === "applied_date") return row.applied_date ?? "";
     if (field === "company_name") return row.company_name;
-    if (field === "job_title") return row.job_title;
+    // Opening a cell that is only holding the placeholder gives an empty box.
+    // Nobody typed "Untitled role", so nobody should have to delete it.
+    if (field === "job_title") return hasTitle(row) ? row.job_title : "";
     return row.job_url ?? "";
   }
 
@@ -277,18 +350,18 @@ export function SheetView({
       toast.error("A row needs a company name.");
       return false;
     }
-    if (field === "job_title" && !next) {
-      // The API requires a title; the sheet's own placeholder is the fallback.
-      toast.error("A row needs a position.");
-      return false;
-    }
+    // The API requires a title. Clearing the cell is allowed — it falls back to
+    // the placeholder rather than refusing the edit.
+    const stored = field === "job_title" && !next ? UNTITLED : next;
 
     try {
       await updateApplication.mutateAsync({
         id: row.id,
         body: {
           [field]:
-            field === "job_url" || field === "applied_date" ? next || null : next,
+            field === "job_url" || field === "applied_date"
+              ? stored || null
+              : stored,
         },
       });
       pushUndo({
@@ -666,13 +739,20 @@ export function SheetView({
       </div>
 
       {/* Grid */}
-      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+      <div
+        ref={gridRef}
+        className="overflow-auto rounded-lg border border-border bg-surface"
+        style={gridHeight === null ? undefined : { maxHeight: gridHeight }}
+      >
         <table className="w-full border-collapse text-sm">
+          {/* Sticky on the cells rather than the row: `position: sticky` on a
+              `thead` is not honoured everywhere, and the background has to be
+              opaque or the rows show through as they pass under it. */}
           <thead>
-            <tr className="bg-surface-muted/60">
+            <tr>
               <th
                 scope="col"
-                className="w-10 border-b border-r border-border px-1 py-1.5 text-[11px] font-medium text-subtle-foreground"
+                className="sticky top-0 z-10 w-10 border-b border-r border-border bg-surface-muted px-1 py-1.5 text-[11px] font-medium text-subtle-foreground"
               >
                 #
               </th>
@@ -681,7 +761,7 @@ export function SheetView({
                   key={column.field}
                   scope="col"
                   className={cn(
-                    "border-b border-r border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground",
+                    "sticky top-0 z-10 border-b border-r border-border bg-surface-muted px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground",
                     column.width,
                   )}
                 >
@@ -690,7 +770,7 @@ export function SheetView({
               ))}
               <th
                 scope="col"
-                className="w-20 border-b border-border px-1 py-1.5 text-[11px] font-medium text-subtle-foreground"
+                className="sticky top-0 z-10 w-20 border-b border-border bg-surface-muted px-1 py-1.5 text-[11px] font-medium text-subtle-foreground"
               >
                 <span className="sr-only">Row actions</span>
               </th>
@@ -700,7 +780,7 @@ export function SheetView({
           <tbody>
             {sheet.days.length === 0 && !canEdit ? (
               <tr>
-                <td colSpan={5} className="p-0">
+                <td colSpan={COLUMNS.length + 2} className="p-0">
                   <EmptyState
                     title={search ? "Nothing matches that" : "No applications yet"}
                     description={
@@ -719,7 +799,7 @@ export function SheetView({
                 <tr>
                   <th
                     scope="colgroup"
-                    colSpan={5}
+                    colSpan={COLUMNS.length + 2}
                     className="border-b border-border bg-surface-muted/80 px-2 py-1 text-left"
                   >
                     <span className="text-xs font-semibold text-foreground">
@@ -962,19 +1042,24 @@ function SheetCell({
     field === "applied_date" ? (
       <span className="tabular-nums">{row.applied_date ?? "—"}</span>
     ) : field === "company_name" ? (
+      // The company cell shows the company. The position has its own column,
+      // and repeating it here in small type only made both harder to scan.
       <span className="flex items-center gap-1.5">
         <span className="truncate">{row.company_name}</span>
-        {row.job_title && row.job_title !== UNTITLED ? (
-          <span className="truncate text-xs text-subtle-foreground">
-            {row.job_title}
-          </span>
-        ) : null}
         {row.is_archived ? (
           <span className="shrink-0 rounded bg-surface-muted px-1 text-[10px] text-muted-foreground">
             archived
           </span>
         ) : null}
       </span>
+    ) : field === "job_title" ? (
+      hasTitle(row) ? (
+        <span className="truncate">{shorten(row.job_title)}</span>
+      ) : (
+        // The placeholder is what the row was stored with, not something
+        // anyone typed, so it reads as an empty cell waiting to be filled.
+        <span className="text-subtle-foreground">{UNTITLED}</span>
+      )
     ) : row.job_url ? (
       <a
         href={row.job_url}
@@ -990,16 +1075,16 @@ function SheetCell({
       <span className="text-subtle-foreground">—</span>
     );
 
+  const title =
+    field === "company_name"
+      ? APPLICATION_STATUS_LABELS[row.status]
+      : field === "job_title" && hasTitle(row)
+        ? row.job_title
+        : undefined;
+
   if (!canEdit) {
     return (
-      <div
-        className="flex h-8 items-center px-2"
-        title={
-          field === "company_name"
-            ? `${row.job_title} · ${APPLICATION_STATUS_LABELS[row.status]}`
-            : undefined
-        }
-      >
+      <div className="flex h-8 items-center px-2" title={title}>
         {content}
       </div>
     );
@@ -1011,11 +1096,7 @@ function SheetCell({
       onClick={onBeginEdit}
       onFocus={onBeginEdit}
       className="flex h-8 w-full items-center px-2 text-left focus:outline-none focus:ring-1 focus:ring-inset focus:ring-primary"
-      title={
-        field === "company_name"
-          ? `${row.job_title} · ${APPLICATION_STATUS_LABELS[row.status]}`
-          : undefined
-      }
+      title={title}
     >
       {content}
     </button>

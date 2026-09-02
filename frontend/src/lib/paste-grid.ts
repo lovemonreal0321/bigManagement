@@ -116,6 +116,88 @@ function detectHeader(cells: string[]): Record<PasteField, number | null> | null
   return mapping.company_name !== null && hits >= 1 ? mapping : null;
 }
 
+/**
+ * Which source column is which, when there is no header row to say so.
+ *
+ * Filling rightward from the cursor is what a spreadsheet does, and it is wrong
+ * here often enough to matter: the blank row's first typeable cell is Company,
+ * so pasting a Date/Company/Position/Link block into the obvious place shifted
+ * every column left by one — the date became the company, the company became
+ * the position, and the position became a link to nowhere.
+ *
+ * Dates and links announce themselves, so those two columns are found by
+ * looking at the data. Whatever is left is text, and text fills rightward from
+ * the cursor as before.
+ */
+function inferMapping(
+  body: string[][],
+  startColumn: PasteField,
+  width: number,
+): Record<PasteField, number | null> {
+  const mapping: Record<PasteField, number | null> = {
+    applied_date: null,
+    company_name: null,
+    job_title: null,
+    job_url: null,
+  };
+
+  /** The leftmost unclaimed column where the values mostly look like this. */
+  const find = (
+    test: (value: string) => boolean,
+    claimed: Set<number>,
+  ): number | null => {
+    for (let index = 0; index < width; index++) {
+      if (claimed.has(index)) continue;
+      let filled = 0;
+      let hits = 0;
+      for (const cells of body) {
+        const value = (cells[index] ?? "").trim();
+        if (!value) continue;
+        filled++;
+        if (test(value)) hits++;
+      }
+      // A clear majority, not merely one lucky row: a company called "Meta.ai"
+      // should not turn its column into the link column.
+      if (filled > 0 && hits / filled >= 0.6) return index;
+    }
+    return null;
+  };
+
+  const claimed = new Set<number>();
+
+  // Dates first. A dotted date can look like a hostname, so resolving it before
+  // links keeps it out of the link column.
+  const dateColumn = find((value) => normaliseDate(value) !== null, claimed);
+  if (dateColumn !== null) {
+    mapping.applied_date = dateColumn;
+    claimed.add(dateColumn);
+  }
+
+  const urlColumn = find(looksLikeUrl, claimed);
+  if (urlColumn !== null) {
+    mapping.job_url = urlColumn;
+    claimed.add(urlColumn);
+  }
+
+  // The remainder is prose. It fills the still-unclaimed fields rightward from
+  // whichever column the cursor was in.
+  let field = PASTE_FIELDS.indexOf(startColumn);
+  for (let index = 0; index < width; index++) {
+    if (claimed.has(index)) continue;
+    while (field < PASTE_FIELDS.length && mapping[PASTE_FIELDS[field]] !== null) {
+      field++;
+    }
+    if (field >= PASTE_FIELDS.length) break;
+    mapping[PASTE_FIELDS[field]] = index;
+    field++;
+  }
+
+  return mapping;
+}
+
+const MONTH_NAME =
+  /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
+
 /** `2026-08-19`, `19/08/2026`, `8/19/2026`, `19 Aug 2026` → `2026-08-19`. */
 export function normaliseDate(raw: string): string | null {
   const value = raw.trim();
@@ -142,7 +224,11 @@ export function normaliseDate(raw: string): string | null {
     return `${full}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
 
-  // Anything else: let the browser try, but only accept a real date.
+  // Anything else is a month-name form ("19 Aug 2026", "Aug 19, 2026"), and
+  // only those. `new Date` accepts a startling amount of nonsense — it reads
+  // `boards.greenhouse.io/acme/1` as a date in 2001 — so it is only consulted
+  // for text that names a month.
+  if (!MONTH_NAME.test(value)) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   const year = parsed.getFullYear();
@@ -152,9 +238,28 @@ export function normaliseDate(raw: string): string | null {
   ).padStart(2, "0")}`;
 }
 
+/**
+ * Text that is actually a link.
+ *
+ * The host has to end in a real TLD, which is what keeps `19.08.2026` from
+ * reading as a domain — the dotted-date form is common in European sheets and
+ * would otherwise be classified as the link column.
+ */
+const URL_LIKE = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[:/?#]\S*)?$/i;
+
+export function looksLikeUrl(raw: string): boolean {
+  const value = raw.trim();
+  if (!value || /\s/.test(value)) return false;
+  return URL_LIKE.test(value);
+}
+
 function normaliseUrl(raw: string): string | null {
   const value = raw.trim();
   if (!value) return null;
+  // Anything that is not a link is dropped rather than prefixed. Gluing
+  // `https://` onto a job title produced `https://Senior Engineer`, a link that
+  // goes nowhere and looks deliberate.
+  if (!looksLikeUrl(value)) return null;
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }
 
@@ -183,27 +288,15 @@ export function parsePaste(text: string, startColumn: PasteField): ParsedPaste {
   const header = detectHeader(grid[0]);
   const body = header ? grid.slice(1) : grid;
 
-  let mapping = header;
-  if (!mapping) {
-    mapping = {
-      applied_date: null,
-      company_name: null,
-      job_title: null,
-      job_url: null,
-    };
-    const start = PASTE_FIELDS.indexOf(startColumn);
-    for (let offset = 0; offset < grid[0].length; offset++) {
-      const field = PASTE_FIELDS[start + offset];
-      if (field) mapping[field] = offset;
-    }
-  }
+  const width = Math.max(...grid.map((cells) => cells.length));
+  const mapping = header ?? inferMapping(body, startColumn, width);
 
   const rows: PastedRow[] = [];
   let skipped = 0;
 
   for (const cells of body) {
     const read = (field: PasteField) => {
-      const index = mapping![field];
+      const index = mapping[field];
       return index === null || index === undefined ? "" : (cells[index] ?? "");
     };
 

@@ -111,7 +111,7 @@ function PasteForm({
         These will be added to <strong className="text-foreground">{personName}</strong>.{" "}
         {parsed.usedHeader
           ? "The first row was read as column headings."
-          : "Columns were matched left to right from the cell you pasted into."}
+          : "Dates and links were recognised by their contents; the rest was matched left to right from the cell you pasted into. Check the columns below before adding."}
       </p>
 
       <div className="overflow-x-auto rounded-md border border-border">
