@@ -166,7 +166,15 @@ export default function AnalyticsPage() {
             <CountTile
               label="Offers"
               value={data.volume.offers}
-              hint={`${data.volume.accepted} accepted`}
+              hint={
+                // Two different questions, and the difference is exactly why
+                // marking an old application as an offer looked like nothing
+                // happened: the tile above is anchored to when the application
+                // was *submitted*.
+                data.volume.offers_received !== data.volume.offers
+                  ? `${data.volume.offers_received} received this period`
+                  : `${data.volume.accepted} accepted`
+              }
             />
           </div>
 

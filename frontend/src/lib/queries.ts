@@ -361,6 +361,19 @@ export function useBulkCreateApplications() {
   });
 }
 
+/** Undo a paste: remove exactly the rows it created. */
+export function useBulkDeleteApplications() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (applicationIds: string[]) =>
+      api.post<{ deleted: number; missing: string[] }>(
+        "/applications/bulk-delete",
+        { application_ids: applicationIds },
+      ),
+    onSuccess: invalidate,
+  });
+}
+
 export function useUpdateApplication() {
   const invalidate = useInvalidateAll();
   return useMutation({

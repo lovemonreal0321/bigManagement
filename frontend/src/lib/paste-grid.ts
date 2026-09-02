@@ -10,12 +10,18 @@
  */
 
 /** The columns the sheet can accept from a paste, in display order. */
-export const PASTE_FIELDS = ["applied_date", "company_name", "job_url"] as const;
+export const PASTE_FIELDS = [
+  "applied_date",
+  "company_name",
+  "job_title",
+  "job_url",
+] as const;
 export type PasteField = (typeof PASTE_FIELDS)[number];
 
 export interface PastedRow {
   applied_date: string | null;
   company_name: string;
+  job_title: string | null;
   job_url: string | null;
 }
 
@@ -82,6 +88,7 @@ export function parseDelimited(text: string, delimiter = "\t"): string[][] {
 const HEADER_PATTERNS: Record<PasteField, RegExp> = {
   applied_date: /^(applied|date|applied\s*date|day|when)$/i,
   company_name: /^(company|company\s*name|employer|organisation|organization)$/i,
+  job_title: /^(position|title|job\s*title|role|job|job\s*name)$/i,
   job_url: /^(link|url|job\s*link|job\s*url|posting|job\s*description|jd)$/i,
 };
 
@@ -89,6 +96,7 @@ function detectHeader(cells: string[]): Record<PasteField, number | null> | null
   const mapping: Record<PasteField, number | null> = {
     applied_date: null,
     company_name: null,
+    job_title: null,
     job_url: null,
   };
   let hits = 0;
@@ -161,7 +169,12 @@ export function parsePaste(text: string, startColumn: PasteField): ParsedPaste {
   if (grid.length === 0) {
     return {
       rows: [],
-      mapping: { applied_date: null, company_name: null, job_url: null },
+      mapping: {
+        applied_date: null,
+        company_name: null,
+        job_title: null,
+        job_url: null,
+      },
       usedHeader: false,
       skipped: 0,
     };
@@ -172,7 +185,12 @@ export function parsePaste(text: string, startColumn: PasteField): ParsedPaste {
 
   let mapping = header;
   if (!mapping) {
-    mapping = { applied_date: null, company_name: null, job_url: null };
+    mapping = {
+      applied_date: null,
+      company_name: null,
+      job_title: null,
+      job_url: null,
+    };
     const start = PASTE_FIELDS.indexOf(startColumn);
     for (let offset = 0; offset < grid[0].length; offset++) {
       const field = PASTE_FIELDS[start + offset];
@@ -196,6 +214,7 @@ export function parsePaste(text: string, startColumn: PasteField): ParsedPaste {
     }
     rows.push({
       company_name: company.slice(0, 255),
+      job_title: read("job_title").trim().slice(0, 255) || null,
       applied_date: normaliseDate(read("applied_date")),
       job_url: normaliseUrl(read("job_url")),
     });

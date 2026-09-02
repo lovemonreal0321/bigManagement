@@ -213,8 +213,8 @@ narrow that and the bar narrows with it. List and Pipeline also offer an
 **Everyone** tab; the Sheet does not, because a spreadsheet tab is one person by
 definition.
 
-The sheet is deliberately narrow — three columns: **date**, **company**, and the
-**job description link**. Rows sit under a day band that states how many
+The sheet is deliberately narrow — four columns: **date**, **company**,
+**position**, and the **job description link**. Rows sit under a day band that states how many
 applications went out that day, **oldest day at the top**, so the newest row
 lands at the bottom next to the blank row you type into rather than jumping away
 from the cursor. Rows within a day stay in the order you added them, so editing
@@ -233,6 +233,21 @@ the count on the band.
 - **Nothing typed is dropped.** Moving focus out of the blank row saves it too,
   as long as a company name is there. A link on its own is not an application
   and is left alone.
+- **Duplicate postings are flagged.** Two rows on the same person's sheet
+  pointing at the same job link turn red and carry a ⚠ in the gutter, saying
+  which other row they clash with. The comparison ignores `http`/`https`, `www`
+  and campaign parameters, so `amazon.jobs/1` and
+  `https://www.amazon.jobs/1/?utm_source=linkedin` match. It is deliberately
+  conservative — query parameters are otherwise kept, because on Greenhouse and
+  Lever the job id lives there, and a red flag on two genuinely different jobs
+  would be worse than a missed duplicate. Two *different people* applying to the
+  same posting is normal and is not flagged.
+- **Undo, repeatedly.** A toolbar button and `Ctrl`/`Cmd`+`Z` step back through
+  this session's sheet changes — a paste, a cell edit, an archive. A pasted
+  block undoes as one action, not fifty. The shortcut is ignored while a cell is
+  being typed into, because that field has its own undo. History is not
+  persisted: an undo that survived a reload would offer to reverse something you
+  can no longer see.
 - A company name is the only thing required; the date defaults to today *in that
   person's timezone*, and the job title is filled in as "Untitled role" for you
   to name later on the detail page.
@@ -316,6 +331,32 @@ That same journey strip appears on any already-linked event, so the calendar
 answers "where are we with this company?" rather than just "what is this
 meeting?". Only the event's own person is searched, because an interview belongs
 to one of them.
+
+### Reaching a later round
+
+Adding round 2 says something about round 1: you were invited on. So a round
+still sitting on *pending* or *waiting* is marked **passed** when a later round
+appears.
+
+It only ever fills gaps. A round explicitly marked failed or withdrawn is left
+exactly as it is — a failed round followed by another is a real situation, and
+the inference must never overwrite a recorded result. A round that has not
+happened yet is left alone too: adding a third round does not declare next
+week's second round a success. Every inference is written to the activity log,
+so it is visible rather than a silent rewrite.
+
+### Where an offer shows up
+
+Analytics is **cohort-anchored**: the funnel counts applications *submitted* in
+the period and how far each got. That is the right shape for a conversion rate,
+but it means marking a months-old application as an offer today changes nothing
+on a "last 30 days" view — which reads as the app ignoring you.
+
+The Offers tile therefore also reports offers **received** in the period,
+counted from when the status actually changed. One application counts once,
+however many times it moves through offer → negotiating → accepted. The
+dashboard metric and the pipeline column were always current-state and were
+never affected.
 
 ### Calendar is the source of truth
 

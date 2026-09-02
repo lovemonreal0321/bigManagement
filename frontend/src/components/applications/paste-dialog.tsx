@@ -15,7 +15,11 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/overlays";
 import { Alert, Button } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
-import { useBulkCreateApplications } from "@/lib/queries";
+import {
+  useBulkCreateApplications,
+  useBulkDeleteApplications,
+} from "@/lib/queries";
+import { useUndo } from "@/lib/undo";
 import type { ParsedPaste } from "@/lib/paste-grid";
 
 const PREVIEW_ROWS = 8;
@@ -64,6 +68,8 @@ function PasteForm({
   onClose: () => void;
 }) {
   const bulkCreate = useBulkCreateApplications();
+  const bulkDelete = useBulkDeleteApplications();
+  const { push: pushUndo } = useUndo();
   const [error, setError] = React.useState<string | null>(null);
 
   const shown = parsed.rows.slice(0, PREVIEW_ROWS);
@@ -77,6 +83,16 @@ function PasteForm({
       const result = await bulkCreate.mutateAsync({
         person_id: personId,
         rows: parsed.rows,
+      });
+      // The block undoes as one step: fifty rows arrived together, so they
+      // leave together rather than as fifty entries in the history.
+      pushUndo({
+        label: `pasted ${result.created} application${
+          result.created === 1 ? "" : "s"
+        }`,
+        undo: async () => {
+          await bulkDelete.mutateAsync(result.application_ids);
+        },
       });
       toast.success(
         `${result.created} application${result.created === 1 ? "" : "s"} added`,
@@ -112,6 +128,9 @@ function PasteForm({
                 Company
               </th>
               <th className="border-b border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">
+                Position
+              </th>
+              <th className="border-b border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">
                 Job description link
               </th>
             </tr>
@@ -127,8 +146,13 @@ function PasteForm({
                     <span className="text-subtle-foreground">today</span>
                   )}
                 </td>
-                <td className="max-w-[16rem] truncate px-2 py-1 text-foreground">
+                <td className="max-w-[14rem] truncate px-2 py-1 text-foreground">
                   {row.company_name}
+                </td>
+                <td className="max-w-[14rem] truncate px-2 py-1 text-muted-foreground">
+                  {row.job_title ?? (
+                    <span className="text-subtle-foreground">Untitled role</span>
+                  )}
                 </td>
                 <td className="max-w-[18rem] truncate px-2 py-1 text-muted-foreground">
                   {row.job_url ?? "—"}
@@ -157,8 +181,8 @@ function PasteForm({
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <TriangleAlert className="mt-0.5 size-3 shrink-0" />
           {undated} row{undated === 1 ? "" : "s"} had no usable date and will be
-          dated today. The job title is set to &ldquo;Untitled role&rdquo; — the
-          sheet has no column for it.
+          dated today. Rows with no position are stored as &ldquo;Untitled
+          role&rdquo;.
         </p>
       ) : null}
 

@@ -23,6 +23,8 @@ import {
   Plus,
   Search,
   SquareArrowOutUpRight,
+  TriangleAlert,
+  Undo2,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -31,7 +33,7 @@ import { toast } from "sonner";
 
 import { ReadOnlyNote } from "@/components/shared/read-only";
 import { Tooltip } from "@/components/ui/overlays";
-import { EmptyState, Input, Skeleton } from "@/components/ui/primitives";
+import { Button, EmptyState, Input, Skeleton } from "@/components/ui/primitives";
 import { PasteDialog } from "@/components/applications/paste-dialog";
 import { ApiError } from "@/lib/api";
 import { parsePaste, type ParsedPaste } from "@/lib/paste-grid";
@@ -39,20 +41,55 @@ import { cn } from "@/lib/utils";
 import { APPLICATION_STATUS_LABELS } from "@/lib/format";
 import {
   useArchiveApplication,
+  useBulkDeleteApplications,
   useCreateApplication,
   useUpdateApplication,
 } from "@/lib/queries";
+import { useUndo, useUndoShortcut } from "@/lib/undo";
 import type { ApplicationSheet, SheetRow } from "@/lib/types";
 
 /** The three columns the sheet shows, in order. */
-const FIELDS = ["applied_date", "company_name", "job_url"] as const;
+const FIELDS = [
+  "applied_date",
+  "company_name",
+  "job_title",
+  "job_url",
+] as const;
 type Field = (typeof FIELDS)[number];
 
 const COLUMNS: { field: Field; label: string; width: string }[] = [
-  { field: "applied_date", label: "Date", width: "w-40" },
-  { field: "company_name", label: "Company", width: "w-[26rem]" },
+  { field: "applied_date", label: "Date", width: "w-36" },
+  { field: "company_name", label: "Company", width: "w-64" },
+  { field: "job_title", label: "Position", width: "w-64" },
   { field: "job_url", label: "Job description link", width: "" },
 ];
+
+/**
+ * Whether this row shares a posting with another.
+ *
+ * Written defensively: an older backend does not send `duplicate_of` at all,
+ * and a version skew during a deploy should not white-screen the sheet over a
+ * decoration.
+ */
+function isDuplicate(row: SheetRow): boolean {
+  return (row.duplicate_of?.length ?? 0) > 0;
+}
+
+/** Keyed by field, not position — the column order has changed once already. */
+const NEW_ROW_PLACEHOLDERS: Record<Field, string> = {
+  applied_date: "today",
+  company_name: "Type a company to add a row…",
+  job_title: "Position",
+  job_url: "https://…",
+};
+
+/** Column names in prose, for undo labels. */
+const COLUMN_LABELS: Record<Field, string> = {
+  applied_date: "Date",
+  company_name: "Company",
+  job_title: "Position",
+  job_url: "Job link",
+};
 
 /** Sentinel row id for the blank "type here to add" row. */
 const NEW_ROW = "__new__";
@@ -119,12 +156,30 @@ export function SheetView({
   const createApplication = useCreateApplication();
   const updateApplication = useUpdateApplication();
   const archiveApplication = useArchiveApplication();
+  const bulkDelete = useBulkDeleteApplications();
+  const { push: pushUndo, undoLast, canUndo, lastLabel, isUndoing } = useUndo();
+
+  const runUndo = React.useCallback(async () => {
+    try {
+      const entry = await undoLast();
+      if (entry) toast.success(`Undone — ${entry.label}`);
+    } catch (error) {
+      toast.error(
+        error instanceof ApiError ? error.message : "Could not undo that.",
+      );
+    }
+  }, [undoLast]);
+
+  // Ctrl+Z, but never while a cell is being typed into — that field has its
+  // own undo and stealing it would be worse than not offering the shortcut.
+  useUndoShortcut(runUndo, canUndo);
 
   const [editing, setEditing] = React.useState<Cell | null>(null);
   const [draft, setDraft] = React.useState("");
   const [newRow, setNewRow] = React.useState<Record<Field, string>>({
     applied_date: "",
     company_name: "",
+    job_title: "",
     job_url: "",
   });
   const inputRef = React.useRef<HTMLInputElement | null>(null);
@@ -203,18 +258,13 @@ export function SheetView({
   function beginEdit(row: SheetRow, field: Field) {
     if (!canEdit) return;
     setEditing({ rowId: row.id, field });
-    setDraft(
-      field === "applied_date"
-        ? (row.applied_date ?? "")
-        : field === "company_name"
-          ? row.company_name
-          : (row.job_url ?? ""),
-    );
+    setDraft(currentValue(row, field));
   }
 
   function currentValue(row: SheetRow, field: Field): string {
     if (field === "applied_date") return row.applied_date ?? "";
     if (field === "company_name") return row.company_name;
+    if (field === "job_title") return row.job_title;
     return row.job_url ?? "";
   }
 
@@ -227,13 +277,27 @@ export function SheetView({
       toast.error("A row needs a company name.");
       return false;
     }
+    if (field === "job_title" && !next) {
+      // The API requires a title; the sheet's own placeholder is the fallback.
+      toast.error("A row needs a position.");
+      return false;
+    }
 
     try {
       await updateApplication.mutateAsync({
         id: row.id,
         body: {
           [field]:
-            field === "job_url" ? (next || null) : field === "applied_date" ? (next || null) : next,
+            field === "job_url" || field === "applied_date" ? next || null : next,
+        },
+      });
+      pushUndo({
+        label: `${COLUMN_LABELS[field]} on ${row.company_name}`,
+        undo: async () => {
+          await updateApplication.mutateAsync({
+            id: row.id,
+            body: { [field]: before || null },
+          });
         },
       });
       return true;
@@ -256,14 +320,25 @@ export function SheetView({
 
     creatingRef.current = true;
     try {
-      await createApplication.mutateAsync({
+      const created = await createApplication.mutateAsync({
         person_id: personId,
         company_name: company,
-        job_title: UNTITLED,
+        job_title: values.job_title.trim() || UNTITLED,
         applied_date: values.applied_date || undefined,
         job_url: withProtocol(values.job_url) || undefined,
       });
-      const empty = { applied_date: "", company_name: "", job_url: "" };
+      pushUndo({
+        label: `added ${company}`,
+        undo: async () => {
+          await bulkDelete.mutateAsync([(created as { id: string }).id]);
+        },
+      });
+      const empty = {
+        applied_date: "",
+        company_name: "",
+        job_title: "",
+        job_url: "",
+      };
       setNewRow(empty);
       pendingRef.current = empty;
       setDraft("");
@@ -360,6 +435,17 @@ export function SheetView({
       await archiveApplication.mutateAsync({
         id: row.id,
         restore: row.is_archived,
+      });
+      pushUndo({
+        label: row.is_archived
+          ? `restored ${row.company_name}`
+          : `archived ${row.company_name}`,
+        undo: async () => {
+          await archiveApplication.mutateAsync({
+            id: row.id,
+            restore: !row.is_archived,
+          });
+        },
       });
       toast.success(
         row.is_archived
@@ -557,6 +643,19 @@ export function SheetView({
           Show archived
         </label>
 
+        {canUndo || isUndoing ? (
+          <Button
+            size="xs"
+            variant="secondary"
+            onClick={() => void runUndo()}
+            loading={isUndoing}
+            title={lastLabel ? `Undo — ${lastLabel}` : "Undo"}
+          >
+            <Undo2 />
+            Undo
+          </Button>
+        ) : null}
+
         {saving ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" />
@@ -645,10 +744,33 @@ export function SheetView({
                       className={cn(
                         "group hover:bg-surface-hover",
                         row.is_archived && "opacity-55",
+                        // Applying twice to the same posting is easy when rows
+                        // arrive by paste; the row says so rather than leaving
+                        // it to be noticed.
+                        isDuplicate(row) &&
+                          "bg-status-danger-bg/40 hover:bg-status-danger-bg/60",
                       )}
                     >
                       <td className="border-b border-r border-border px-1 text-center align-middle text-[11px] tabular-nums text-subtle-foreground">
-                        {index + 1}
+                        {isDuplicate(row) ? (
+                          <Tooltip
+                            content={
+                              row.duplicate_note ??
+                              "Another row points at this same job posting."
+                            }
+                          >
+                            <span
+                              className="inline-flex text-status-danger"
+                              aria-label={`Duplicate job link — ${
+                                row.duplicate_note ?? "same posting as another row"
+                              }`}
+                            >
+                              <TriangleAlert className="size-3.5" />
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          index + 1
+                        )}
                       </td>
 
                       {COLUMNS.map((column) => (
@@ -734,7 +856,7 @@ export function SheetView({
                 <td className="border-b border-r border-border px-1 text-center align-middle text-subtle-foreground">
                   <Plus className="mx-auto size-3" />
                 </td>
-                {COLUMNS.map((column, index) => (
+                {COLUMNS.map((column) => (
                   <td
                     key={column.field}
                     className="border-b border-r border-border p-0 align-middle"
@@ -746,13 +868,7 @@ export function SheetView({
                           : newRow[column.field]
                       }
                       type={column.field === "applied_date" ? "date" : "text"}
-                      placeholder={
-                        index === 1
-                          ? "Type a company to add a row…"
-                          : index === 0
-                            ? "today"
-                            : "https://…"
-                      }
+                      placeholder={NEW_ROW_PLACEHOLDERS[column.field]}
                       ref={
                         sameCell(editing, { rowId: NEW_ROW, field: column.field })
                           ? inputRef

@@ -550,9 +550,12 @@ export interface VolumeCounts {
   scheduled: number;
   cancelled: number;
   final_rounds: number;
+  /** Offers from applications submitted in this period (cohort-anchored). */
   offers: number;
   accepted: number;
   rejected: number;
+  /** Offers received during this period, whenever the application was sent. */
+  offers_received: number;
 }
 
 export interface ConversionMetrics {
@@ -922,6 +925,9 @@ export interface SheetRow {
   job_url: string | null;
   status: ApplicationStatus;
   is_archived: boolean;
+  /** Other rows on this sheet pointing at the same posting. */
+  duplicate_of: string[];
+  duplicate_note: string | null;
 }
 
 export interface SheetDay {
