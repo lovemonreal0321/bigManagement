@@ -48,6 +48,15 @@ class VolumeCounts(BaseModel):
     #: where the cohort figure above would stay at zero and look broken.
     offers_received: int = 0
 
+    #: Interviews sitting on a connected calendar during this period — every
+    #: imported event not filed as personal or not-an-interview. Counted from
+    #: the calendar rather than the pipeline, so it sees interviews that were
+    #: never entered as applications.
+    calendar_interviews: int = 0
+    #: How many of those have no application behind them. These are the ones
+    #: missing from every rate below, which is why the figure is worth showing.
+    calendar_interviews_unlinked: int = 0
+
 
 class ConversionMetrics(BaseModel):
     """Spec §26."""

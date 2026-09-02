@@ -235,6 +235,14 @@ class CalendarFeedEvent(BaseModel):
     detection_score: float = 0.0
     is_suggestion: bool = False
 
+    #: Whether this block counts towards the interview numbers. True for every
+    #: linked interview, and for any imported event nobody has filed as personal
+    #: or not-an-interview.
+    counts_as_interview: bool = False
+    #: Counts as an interview but has no application behind it, so the numbers
+    #: it feeds are anonymous. The calendar flags these for connecting.
+    needs_application: bool = False
+
 
 class CalendarFeedOut(BaseModel):
     start: datetime

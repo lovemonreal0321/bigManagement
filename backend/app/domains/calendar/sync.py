@@ -334,6 +334,7 @@ def _create_event(
         last_synced_at=utcnow(),
     )
     _apply_incoming(event, incoming)
+    event.classification = _initial_classification(incoming).value
     _run_detection(workspace, event, result)
     db.add(event)
     result.events_created += 1
@@ -380,9 +381,27 @@ def _apply_incoming(event: CalendarEvent, incoming: NormalizedEvent) -> None:
     event.start_timezone = incoming.start_timezone
     event.end_timezone = incoming.end_timezone
     event.is_all_day = incoming.is_all_day
+    event.is_recurring = incoming.is_recurring
     event.status = incoming.status.value
     event.raw = incoming.raw
     event.ical_uid = incoming.ical_uid or event.ical_uid
+
+
+def _initial_classification(incoming: NormalizedEvent) -> EventClassification:
+    """How a freshly imported event is filed before anyone looks at it.
+
+    An imported event counts as an interview by default, which is right for the
+    one-off meetings a job search generates and wrong for the furniture of a
+    working week. A weekly standup or an all-day "PTO" block would otherwise
+    arrive fifty-two times over and drown the funnel, so those two shapes are
+    pre-filed as not-an-interview.
+
+    Nothing here is locked: detection still scores the event, and a person can
+    reclassify it. This only decides where it starts.
+    """
+    if incoming.is_recurring or incoming.is_all_day:
+        return EventClassification.NORMAL_MEETING
+    return EventClassification.UNCLASSIFIED
 
 
 def _run_detection(

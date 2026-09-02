@@ -20,6 +20,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/overlays";
 import {
+  Alert,
   Button,
   Card,
   CardBody,
@@ -140,7 +141,8 @@ export default function AnalyticsPage() {
           <Skeleton className="h-64" />
         </div>
       ) : !data ? null : data.volume.applications === 0 &&
-        data.volume.interview_stages === 0 ? (
+        data.volume.interview_stages === 0 &&
+        data.volume.calendar_interviews === 0 ? (
         <Card>
           <EmptyState
             title="No data in this period"
@@ -155,7 +157,14 @@ export default function AnalyticsPage() {
             <CountTile
               label="Interviews held"
               value={data.volume.interviews_held}
-              hint={`${data.volume.scheduled} scheduled`}
+              hint={
+                // The calendar usually knows about more interviews than the
+                // pipeline does, and saying so is more useful than letting the
+                // smaller number stand unexplained.
+                data.volume.calendar_interviews > data.volume.interviews_held
+                  ? `${data.volume.calendar_interviews} on the calendar`
+                  : `${data.volume.scheduled} scheduled`
+              }
             />
             <CountTile label="Passed" value={data.volume.passed} />
             <CountTile label="Failed" value={data.volume.failed} />
@@ -177,6 +186,18 @@ export default function AnalyticsPage() {
               }
             />
           </div>
+
+          {data.volume.calendar_interviews_unlinked > 0 ? (
+            <Alert
+              tone="warn"
+              title={`${data.volume.calendar_interviews_unlinked} interview${
+                data.volume.calendar_interviews_unlinked === 1 ? "" : "s"
+              } on the calendar with no application`}
+            >
+              {data.notes.calendar_anchor} Connect them on the calendar to bring
+              them into the numbers below.
+            </Alert>
+          ) : null}
 
           {/* Conversion (spec §26) */}
           <Card>

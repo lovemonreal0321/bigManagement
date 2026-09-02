@@ -8,10 +8,11 @@
  * is room (spec §9).
  */
 
-import { Sparkles, Video } from "lucide-react";
+import { Link2Off, Video } from "lucide-react";
 import * as React from "react";
 
 import { PersonAvatar, StageBadge } from "@/components/shared/badges";
+import { stepColor } from "@/lib/event-color";
 import { formatTime } from "@/lib/format";
 import type { CalendarFeedEvent } from "@/lib/types";
 import { cn, personBorder, personTint } from "@/lib/utils";
@@ -36,6 +37,9 @@ export function EventChip({
   const isInterview = event.kind === "interview";
   const cancelled = event.stage_status === "cancelled";
   const color = event.person_color;
+  // Person colour still says *who*; the step colour says *which round*.
+  const step = stepColor(event);
+  const counts = event.counts_as_interview;
 
   const label = isInterview
     ? (event.company_name ?? event.title)
@@ -45,7 +49,14 @@ export function EventChip({
     <button
       type="button"
       onClick={() => onSelect?.(event)}
-      title={`${label}${event.stage_badge ? ` — ${event.stage_badge}` : ""} · ${formatTime(event.starts_at, tz)}`}
+      title={[
+        label,
+        event.stage_badge ?? step?.label,
+        formatTime(event.starts_at, tz),
+        event.needs_application ? "no application connected" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       className={cn(
         "group relative flex w-full min-w-0 flex-col overflow-hidden rounded border text-left transition-colors",
         size === "xs" ? "gap-0 px-1 py-0.5" : "gap-0.5 px-1.5 py-1",
@@ -55,17 +66,18 @@ export function EventChip({
       )}
       style={{
         // Person colour identifies *who*; it is never used for status.
-        backgroundColor: isInterview
-          ? personTint(color, 16)
-          : "var(--surface-muted)",
-        borderColor: isInterview ? personBorder(color, 45) : "var(--border)",
+        backgroundColor: counts ? personTint(color, 16) : "var(--surface-muted)",
+        borderColor: counts ? personBorder(color, 45) : "var(--border)",
         ...style,
       }}
     >
+      {/* The spine carries the step. Person identity is already on the avatar
+          and the tint, so this is the one place a round can have a colour of
+          its own without two schemes fighting. */}
       <span
         aria-hidden
-        className="absolute inset-y-0 left-0 w-0.5"
-        style={{ backgroundColor: isInterview ? color : "var(--border-strong)" }}
+        className="absolute inset-y-0 left-0 w-1"
+        style={{ backgroundColor: step?.color ?? "var(--border-strong)" }}
       />
 
       <span className="flex min-w-0 items-center gap-1 pl-1">
@@ -85,8 +97,11 @@ export function EventChip({
         >
           {label}
         </span>
-        {event.is_suggestion ? (
-          <Sparkles className="size-3 shrink-0 text-primary" aria-label="Possible interview" />
+        {event.needs_application ? (
+          <Link2Off
+            className="size-3 shrink-0 text-status-warn"
+            aria-label="No application connected"
+          />
         ) : null}
         {event.meeting_url && size !== "xs" ? (
           <Video className="size-3 shrink-0 text-muted-foreground" aria-hidden />
@@ -128,11 +143,19 @@ export function EventLine({
   onSelect?: (event: CalendarFeedEvent) => void;
 }) {
   const isInterview = event.kind === "interview";
+  const step = stepColor(event);
   return (
     <button
       type="button"
       onClick={() => onSelect?.(event)}
-      title={`${event.company_name ?? event.title} · ${formatTime(event.starts_at, tz)}`}
+      title={[
+        event.company_name ?? event.title,
+        step?.label,
+        formatTime(event.starts_at, tz),
+        event.needs_application ? "no application connected" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       className={cn(
         "flex w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-surface-hover",
         event.stage_status === "cancelled" && "opacity-55 line-through",
@@ -140,11 +163,7 @@ export function EventLine({
     >
       <span
         className="size-1.5 shrink-0 rounded-full"
-        style={{
-          backgroundColor: isInterview
-            ? event.person_color
-            : "var(--border-strong)",
-        }}
+        style={{ backgroundColor: step?.color ?? "var(--border-strong)" }}
         aria-hidden
       />
       <span className="tabular shrink-0 text-[10px] text-muted-foreground">

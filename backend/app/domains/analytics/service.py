@@ -19,14 +19,24 @@ from app.domains.analytics.periods import Period
 from app.domains.interviews.types import TypeRegistry, load_registry
 from app.enums import (
     HELD_STATUSES,
+    NON_INTERVIEW_CLASSIFICATIONS,
     OFFER_STATUSES,
     REAL_INTERVIEW_STATUSES,
     ActivityType,
     ApplicationStatus,
+    EventStatus,
     InterviewOutcome,
     InterviewStatus,
 )
-from app.models import Activity, Application, InterviewStage, Person, Workspace
+from app.models import (
+    Activity,
+    Application,
+    CalendarEvent,
+    InterviewEvent,
+    InterviewStage,
+    Person,
+    Workspace,
+)
 from app.schemas.analytics import (
     AnalyticsOut,
     ConversionMetrics,
@@ -84,6 +94,52 @@ def _stage_period_clause(period: Period, tz: str | None):
 # --------------------------------------------------------------------------
 # Offer detection
 # --------------------------------------------------------------------------
+
+
+def _calendar_interviews(
+    db: Session,
+    person_ids: list[str],
+    period: Period,
+    tz: str | None,
+) -> tuple[int, int]:
+    """Interviews visible on a connected calendar during the period.
+
+    Every rate on this page is computed from applications, so an interview that
+    was never entered as one is invisible to all of them. That is the correct
+    behaviour for a conversion rate and a poor answer to "how many interviews
+    did I have last month?". Counting the calendar directly answers the second
+    question, and the unlinked half of the pair says how much the first one is
+    missing.
+
+    Returns (total, unlinked).
+    """
+    if not person_ids:
+        return (0, 0)
+
+    stmt = select(CalendarEvent.id).where(
+        CalendarEvent.person_id.in_(person_ids),
+        CalendarEvent.deleted_at.is_(None),
+        CalendarEvent.classification.not_in(sorted(NON_INTERVIEW_CLASSIFICATIONS)),
+        CalendarEvent.status != EventStatus.CANCELLED.value,
+    )
+    if period.start is not None and period.end is not None:
+        start, end = range_bounds(period.start, period.end, tz)
+        stmt = stmt.where(
+            CalendarEvent.starts_at >= start, CalendarEvent.starts_at < end
+        )
+
+    event_ids = set(db.scalars(stmt))
+    if not event_ids:
+        return (0, 0)
+
+    linked = set(
+        db.scalars(
+            select(InterviewEvent.calendar_event_id).where(
+                InterviewEvent.calendar_event_id.in_(event_ids)
+            )
+        )
+    )
+    return (len(event_ids), len(event_ids - linked))
 
 
 def _offers_received(
@@ -246,6 +302,10 @@ def compute_analytics(
         stage_stmt = stage_stmt.where(*clause)
     period_stages = list(db.scalars(stage_stmt))
 
+    calendar_total, calendar_unlinked = _calendar_interviews(
+        db, person_ids, period, tz
+    )
+
     volume = VolumeCounts(
         applications=applications_count,
         applications_with_interview=apps_with_interview,
@@ -267,6 +327,8 @@ def compute_analytics(
         offers_received=_offers_received(db, workspace, person_ids, period),
         accepted=accepted_count,
         rejected=rejected_count,
+        calendar_interviews=calendar_total,
+        calendar_interviews_unlinked=calendar_unlinked,
     )
 
     technical_keys = registry.technical_keys
@@ -383,6 +445,11 @@ def _notes() -> dict[str, str]:
         "interview_anchor": (
             "Interview counts, pass rates and by-type performance cover interviews "
             "that took place in this period."
+        ),
+        "calendar_anchor": (
+            "Calendar interviews count every imported event in this period except "
+            "those marked personal or not an interview. Ones with no application "
+            "connected are missing from the funnel and the rates above."
         ),
         "pass_rate": (
             "Pass rate = passed / (passed + failed). Scheduled, waiting, cancelled "

@@ -384,6 +384,10 @@ export interface CalendarFeedEvent {
   classification: EventClassification | null;
   detection_score: number;
   is_suggestion: boolean;
+  /** Whether this block feeds the interview numbers. */
+  counts_as_interview: boolean;
+  /** Counts as an interview but has no application behind it. */
+  needs_application: boolean;
 }
 
 export interface ScheduleConflict {
@@ -556,6 +560,10 @@ export interface VolumeCounts {
   rejected: number;
   /** Offers received during this period, whenever the application was sent. */
   offers_received: number;
+  /** Interviews on a connected calendar during this period. */
+  calendar_interviews: number;
+  /** How many of those have no application behind them. */
+  calendar_interviews_unlinked: number;
 }
 
 export interface ConversionMetrics {

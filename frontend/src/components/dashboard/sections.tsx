@@ -9,7 +9,7 @@ import {
   ChevronRight,
   Inbox,
   Link2,
-  Sparkles,
+  Link2Off,
   Video,
 } from "lucide-react";
 import Link from "next/link";
@@ -636,16 +636,20 @@ export function SuggestionsCard({
     <Card className="border-primary/30">
       <CardHeader
         title="Suggestions"
-        description="Nothing here is created until you accept it."
+        description={
+          interviewSuggestions.length > 0
+            ? "Interviews on the calendar with no application behind them, and follow-ups worth booking. Nothing here is created until you accept it."
+            : "Nothing here is created until you accept it."
+        }
       />
       <ul className="divide-y divide-border">
         {interviewSuggestions.map((suggestion) => (
           <li key={suggestion.event_id} className="px-4 py-2.5">
             <div className="flex items-start gap-2">
-              <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
+              <Link2Off className="mt-0.5 size-4 shrink-0 text-status-warn" />
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-medium text-foreground">
-                  Possible interview detected
+                  Which application is this interview for?
                 </p>
                 <p className="truncate text-sm text-foreground">
                   {suggestion.title}
@@ -666,14 +670,15 @@ export function SuggestionsCard({
                   onClick={() => onLinkEvent(suggestion)}
                 >
                   <Link2 />
-                  Review
+                  Connect
                 </Button>
                 <Button
                   size="xs"
                   variant="ghost"
                   onClick={() => dismiss.mutate(suggestion.event_id)}
+                  title="Stop asking about this event. It still counts as an interview."
                 >
-                  Ignore
+                  Not now
                 </Button>
               </div>
             ) : null}

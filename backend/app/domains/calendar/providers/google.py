@@ -321,6 +321,9 @@ def _normalise_event(item: dict[str, Any]) -> NormalizedEvent | None:
 
     return NormalizedEvent(
         provider_event_id=item["id"],
+        # `singleEvents=true` expands a series, and every instance carries the
+        # id of the series it came from.
+        is_recurring=bool(item.get("recurringEventId")),
         ical_uid=item.get("iCalUID"),
         etag=item.get("etag"),
         title=item.get("summary") or "(no title)",

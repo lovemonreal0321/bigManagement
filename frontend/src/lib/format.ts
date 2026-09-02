@@ -319,15 +319,34 @@ export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
   unknown: "Not specified",
 };
 
+/**
+ * An imported event counts as an interview unless it is filed as one of the
+ * three opt-outs. `normal_meeting` keeps its stored value — it is persisted on
+ * every existing row — but it reads as "Not an interview", which is what it now
+ * means.
+ */
 export const CLASSIFICATION_LABELS: Record<string, string> = {
-  unclassified: "Not classified",
-  normal_meeting: "Normal meeting",
+  unclassified: "Interview (unsorted)",
+  normal_meeting: "Not an interview",
   interview: "Interview",
   recruiter_call: "Recruiter call",
   assessment: "Assessment",
   personal: "Personal",
   ignored: "Ignored",
 };
+
+/** The three classifications that keep an event out of the interview numbers. */
+export const NON_INTERVIEW_CLASSIFICATIONS = new Set([
+  "normal_meeting",
+  "personal",
+  "ignored",
+]);
+
+export function countsAsInterview(classification: string | null): boolean {
+  return classification === null
+    ? true
+    : !NON_INTERVIEW_CLASSIFICATIONS.has(classification);
+}
 
 /** Tailwind classes for a semantic tone. */
 export const TONE_CLASSES: Record<Tone, string> = {

@@ -103,6 +103,8 @@ export default function DashboardPage() {
       classification: "unclassified",
       detection_score: suggestion.score,
       is_suggestion: true,
+      counts_as_interview: true,
+      needs_application: true,
     });
   }
 

@@ -7,6 +7,7 @@ import {
   Columns3,
   Filter,
   Layers,
+  Link2Off,
   RefreshCw,
 } from "lucide-react";
 import * as React from "react";
@@ -39,6 +40,7 @@ import {
   Skeleton,
 } from "@/components/ui/primitives";
 import { ApiError } from "@/lib/api";
+import { stepLegend } from "@/lib/event-color";
 import {
   addDays,
   rangeForView,
@@ -99,8 +101,11 @@ export default function CalendarPage() {
     show_non_interview: showNonInterview,
   });
 
-  const events = feed.data?.events ?? [];
+  const events = React.useMemo(() => feed.data?.events ?? [], [feed.data]);
   const conflicts = feed.data?.conflicts ?? [];
+  // Only the steps actually on screen, so the legend stays short.
+  const legend = React.useMemo(() => stepLegend(events), [events]);
+  const unconnected = events.filter((event) => event.needs_application);
 
   function step(direction: -1 | 1) {
     setAnchorDay((current) => {
@@ -289,7 +294,7 @@ export default function CalendarPage() {
                 onChange={(event) => setShowNonInterview(event.target.checked)}
                 className="size-3.5 accent-[var(--primary)]"
               />
-              Show non-interview events
+              Show personal and non-interview events
             </label>
             {typeFilter.length > 0 ? (
               <Button
@@ -326,20 +331,60 @@ export default function CalendarPage() {
         </div>
       ) : null}
 
+      {/* Interviews with nothing behind them (spec §8) */}
+      {unconnected.length > 0 ? (
+        <Alert
+          tone="warn"
+          className="mb-3"
+          title={
+            <span className="flex items-center gap-1.5">
+              <Link2Off className="size-3.5" />
+              {unconnected.length} interview
+              {unconnected.length === 1 ? " has" : "s have"} no application
+            </span>
+          }
+        >
+          {unconnected.length === 1
+            ? `"${unconnected[0].title}" counts as an interview but is not `
+            : "They count as interviews but are not "}
+          connected to an application, so they are missing from the funnel and
+          every rate on the dashboard. Open one to connect it — or mark it
+          personal or not an interview to stop it counting.
+        </Alert>
+      ) : null}
+
       {/* Legend */}
-      {selectedPeople.length > 1 ? (
-        <div className="mb-2 flex flex-wrap items-center gap-3">
-          {selectedPeople.map((person) => (
+      {selectedPeople.length > 1 || legend.length > 0 ? (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          {selectedPeople.length > 1
+            ? selectedPeople.map((person) => (
+                <span
+                  key={person.id}
+                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                >
+                  <PersonAvatar
+                    color={person.color}
+                    initials={person.initials}
+                    size="xs"
+                  />
+                  {person.display_name}
+                </span>
+              ))
+            : null}
+          {selectedPeople.length > 1 && legend.length > 0 ? (
+            <span aria-hidden className="h-3 w-px bg-border" />
+          ) : null}
+          {legend.map((entry) => (
             <span
-              key={person.id}
+              key={entry.label}
               className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
             >
-              <PersonAvatar
-                color={person.color}
-                initials={person.initials}
-                size="xs"
+              <span
+                aria-hidden
+                className="h-3 w-1 rounded-full"
+                style={{ backgroundColor: entry.color }}
               />
-              {person.display_name}
+              {entry.label}
             </span>
           ))}
         </div>

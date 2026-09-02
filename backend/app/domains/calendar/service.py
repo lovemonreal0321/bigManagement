@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,13 +17,16 @@ from app.domains.calendar.conflicts import find_conflicts
 from app.domains.calendar.providers import available_providers, get_adapter
 from app.domains.interviews.types import TypeRegistry, load_registry, stage_badge
 from app.enums import (
+    NON_INTERVIEW_CLASSIFICATIONS,
     ActivityType,
     ApplicationStatus,
     CalendarProvider,
     ConnectionStatus,
     EventClassification,
     EventSource,
+    EventStatus,
     InterviewStatus,
+    counts_as_interview,
 )
 from app.models import (
     Application,
@@ -407,72 +410,82 @@ def build_feed(
                 round_number=stage.round_number,
                 stage_status=stage.status,
                 stage_outcome=stage.outcome,
+                counts_as_interview=True,
             )
         )
 
     # -- external events ---------------------------------------------------
-    if filters.show_non_interview or filters.classifications:
-        ext_stmt = select(CalendarEvent).where(
-            CalendarEvent.person_id.in_(person_ids),
-            CalendarEvent.deleted_at.is_(None),
-            CalendarEvent.starts_at < end,
-            CalendarEvent.ends_at > start,
+    # Imported events are always drawn; the clauses below decide which. This
+    # used to skip them wholesale when "show everything" was off, which meant
+    # turning that switch off emptied the calendar instead of narrowing it to
+    # the interviews.
+    ext_stmt = select(CalendarEvent).where(
+        CalendarEvent.person_id.in_(person_ids),
+        CalendarEvent.deleted_at.is_(None),
+        CalendarEvent.starts_at < end,
+        CalendarEvent.ends_at > start,
+    )
+    if filters.external_calendar_ids:
+        ext_stmt = ext_stmt.where(
+            CalendarEvent.external_calendar_id.in_(filters.external_calendar_ids)
         )
-        if filters.external_calendar_ids:
-            ext_stmt = ext_stmt.where(
-                CalendarEvent.external_calendar_id.in_(filters.external_calendar_ids)
+    if filters.classifications:
+        ext_stmt = ext_stmt.where(
+            CalendarEvent.classification.in_(filters.classifications)
+        )
+    elif not filters.show_non_interview:
+        # "Interviews only" is now a subtraction rather than a whitelist:
+        # everything counts unless it has been filed as personal or as not
+        # an interview.
+        ext_stmt = ext_stmt.where(
+            CalendarEvent.classification.not_in(
+                sorted(NON_INTERVIEW_CLASSIFICATIONS)
             )
-        if filters.classifications:
-            ext_stmt = ext_stmt.where(
-                CalendarEvent.classification.in_(filters.classifications)
-            )
-        elif not filters.show_non_interview:
-            ext_stmt = ext_stmt.where(
-                CalendarEvent.classification.in_(
-                    [
-                        EventClassification.INTERVIEW.value,
-                        EventClassification.RECRUITER_CALL.value,
-                        EventClassification.ASSESSMENT.value,
-                    ]
-                )
-            )
-        else:
-            # Events the user explicitly ignored stay hidden.
-            ext_stmt = ext_stmt.where(
-                CalendarEvent.classification != EventClassification.IGNORED.value
-            )
+        )
+    else:
+        # Events the user explicitly ignored stay hidden.
+        ext_stmt = ext_stmt.where(
+            CalendarEvent.classification != EventClassification.IGNORED.value
+        )
 
-        for event in db.scalars(ext_stmt.order_by(CalendarEvent.starts_at)):
-            if event.id in linked_calendar_event_ids:
-                continue  # already drawn as its interview
-            person = by_person.get(event.person_id)
-            if person is None:
-                continue
-            feed.events.append(
-                CalendarFeedEvent(
-                    id=f"calendar:{event.id}",
-                    kind="external",
-                    person_id=person.id,
-                    person_name=person.display_name,
-                    person_color=person.color,
-                    person_initials=person.initials,
-                    title=event.title,
-                    starts_at=event.starts_at,
-                    ends_at=event.ends_at,
-                    timezone=event.start_timezone or person.timezone,
-                    is_all_day=event.is_all_day,
-                    location=event.location,
-                    meeting_url=event.meeting_url,
-                    calendar_event_id=event.id,
-                    classification=event.classification,
-                    detection_score=event.detection_score,
-                    is_suggestion=(
-                        event.detection_score >= 0.5
-                        and not event.detection_dismissed
-                        and event.classification == EventClassification.UNCLASSIFIED.value
-                    ),
-                )
+    for event in db.scalars(ext_stmt.order_by(CalendarEvent.starts_at)):
+        if event.id in linked_calendar_event_ids:
+            continue  # already drawn as its interview
+        person = by_person.get(event.person_id)
+        if person is None:
+            continue
+        feed.events.append(
+            CalendarFeedEvent(
+                id=f"calendar:{event.id}",
+                kind="external",
+                person_id=person.id,
+                person_name=person.display_name,
+                person_color=person.color,
+                person_initials=person.initials,
+                title=event.title,
+                starts_at=event.starts_at,
+                ends_at=event.ends_at,
+                timezone=event.start_timezone or person.timezone,
+                is_all_day=event.is_all_day,
+                location=event.location,
+                meeting_url=event.meeting_url,
+                calendar_event_id=event.id,
+                classification=event.classification,
+                detection_score=event.detection_score,
+                is_suggestion=(
+                    event.detection_score >= 0.5
+                    and not event.detection_dismissed
+                    and event.classification == EventClassification.UNCLASSIFIED.value
+                ),
+                counts_as_interview=counts_as_interview(event.classification),
+                # It reached this branch because it is not linked to a
+                # stage — the linked ones were skipped above.
+                needs_application=(
+                    counts_as_interview(event.classification)
+                    and not event.detection_dismissed
+                ),
             )
+        )
 
     feed.events.sort(key=lambda e: (e.starts_at, e.person_name))
 
@@ -534,10 +547,26 @@ def event_to_out(
     return out
 
 
+#: How far back the "connect this to an application" list reaches. Long enough
+#: to catch an interview someone sat last week, short enough that the list does
+#: not become an archive.
+RECENT_UNLINKED_DAYS = 14
+
+
 def list_suggestions(
     db: Session, workspace: Workspace, person_ids: list[str], *, limit: int = 25
 ) -> list[InterviewSuggestionOut]:
-    """"Possible interview detected" cards (spec §8)."""
+    """Imported interviews with no application behind them (spec §8).
+
+    This used to be a detection feed: only events the scorer was at least half
+    sure about, and only while they were still unclassified. Now that every
+    imported event counts as an interview by default, the useful question is
+    different — not "is this an interview?" but "which interview is it?". So
+    the list is everything that counts and has nothing connected to it.
+
+    Dismissing one still hides it, which is how someone says "yes, it is an
+    interview, and no, I am not tracking it".
+    """
     if not person_ids:
         return []
     registry = load_registry(db, workspace.id)
@@ -552,18 +581,22 @@ def list_suggestions(
         if cid
     }
 
+    # Recently-finished interviews are worth connecting too: someone who sat an
+    # interview on Tuesday and opens the app on Thursday should still be asked.
+    since = utcnow() - timedelta(days=RECENT_UNLINKED_DAYS)
+
     events = db.scalars(
         select(CalendarEvent)
         .where(
             CalendarEvent.person_id.in_(person_ids),
             CalendarEvent.deleted_at.is_(None),
             CalendarEvent.detection_dismissed.is_(False),
-            CalendarEvent.detection_score >= 0.5,
-            CalendarEvent.classification == EventClassification.UNCLASSIFIED.value,
-            CalendarEvent.ends_at >= utcnow(),
+            CalendarEvent.classification.not_in(sorted(NON_INTERVIEW_CLASSIFICATIONS)),
+            CalendarEvent.status != EventStatus.CANCELLED.value,
+            CalendarEvent.ends_at >= since,
         )
         .order_by(CalendarEvent.starts_at)
-        .limit(limit * 2)
+        .limit(limit * 4)
     )
 
     suggestions: list[InterviewSuggestionOut] = []

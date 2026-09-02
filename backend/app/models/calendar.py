@@ -194,6 +194,10 @@ class CalendarEvent(Base, UUIDMixin, TimestampMixin):
     start_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     end_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_all_day: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: One occurrence of a repeating series, per the provider.
+    is_recurring: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
 
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=EventStatus.CONFIRMED.value

@@ -84,6 +84,10 @@ class NormalizedEvent:
     start_timezone: str | None = None
     end_timezone: str | None = None
     is_all_day: bool = False
+    #: One occurrence of a repeating series. A weekly standup is almost never
+    #: an interview, so this lets the importer pre-mark it rather than counting
+    #: fifty-two of them.
+    is_recurring: bool = False
     status: EventStatus = EventStatus.CONFIRMED
     raw: dict[str, Any] = field(default_factory=dict)
 

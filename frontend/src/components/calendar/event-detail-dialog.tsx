@@ -33,6 +33,7 @@ import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import {
   CLASSIFICATION_LABELS,
+  countsAsInterview,
   formatDate,
   formatTime,
 } from "@/lib/format";
@@ -158,25 +159,38 @@ export function EventDetailDialog({
               <Skeleton className="h-24" />
             ) : (
               <>
-                {detail?.detection_score && detail.detection_score >= 0.5 ? (
+                {detail && countsAsInterview(detail.classification) ? (
                   <Alert
-                    tone="info"
+                    tone={detail.interview_stage_id ? "info" : "warn"}
                     title={
                       <span className="flex items-center gap-1.5">
                         <Sparkles className="size-3.5" />
-                        Possible interview detected
+                        {detail.interview_stage_id
+                          ? "Counted as an interview"
+                          : "Counted as an interview — no application yet"}
                       </span>
                     }
                   >
-                    <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                      {(detail.detection_reasons ?? []).map((reason) => (
-                        <li key={reason}>{reason}</li>
-                      ))}
-                    </ul>
-                    <p className="mt-1.5 opacity-80">
-                      Nothing is created from this on its own — link it or
-                      ignore it.
-                    </p>
+                    {detail.interview_stage_id ? (
+                      <p>
+                        This event feeds the interview counts and the rates on
+                        the dashboard.
+                      </p>
+                    ) : (
+                      <p>
+                        Every event on a connected calendar counts as an
+                        interview unless you say otherwise. Connect it to an
+                        application below so it reaches the funnel — or mark it
+                        personal or not an interview to stop it counting.
+                      </p>
+                    )}
+                    {(detail.detection_reasons ?? []).length > 0 ? (
+                      <ul className="mt-1 list-disc space-y-0.5 pl-4 opacity-80">
+                        {(detail.detection_reasons ?? []).map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </Alert>
                 ) : null}
 
@@ -187,11 +201,12 @@ export function EventDetailDialog({
                 ) : null}
 
                 {editable ? (
-                <Field label="Classification">
+                <Field
+                  label="Classification"
+                  hint="Personal, not an interview and ignored keep it out of the interview counts. Everything else counts."
+                >
                   <div className="flex flex-wrap gap-1.5">
-                    {EVENT_CLASSIFICATIONS.filter(
-                      (value) => value !== "unclassified",
-                    ).map((value) => {
+                    {EVENT_CLASSIFICATIONS.map((value) => {
                       const active = detail?.classification === value;
                       return (
                         <Button

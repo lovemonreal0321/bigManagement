@@ -351,8 +351,15 @@ class EventStatus(StrEnum):
 class EventClassification(StrEnum):
     """How an imported calendar event has been triaged.
 
-    Imported events start `UNCLASSIFIED`. Nothing is treated as an interview
-    until a human says so (spec §7, §8).
+    The default reading is now the opposite of what it was: an imported event
+    **counts as an interview** unless it has been marked otherwise. Someone
+    connecting a calendar to a job-search app is mostly importing interviews,
+    and having to hand-classify every one before it appeared anywhere was the
+    larger annoyance.
+
+    `NORMAL_MEETING` keeps its stored value — renaming a persisted value needs a
+    migration — but reads as "Not an interview" in the UI, which is what it now
+    means.
     """
 
     UNCLASSIFIED = "unclassified"
@@ -362,6 +369,21 @@ class EventClassification(StrEnum):
     ASSESSMENT = "assessment"
     PERSONAL = "personal"
     IGNORED = "ignored"
+
+#: Classifications that mean "this is not an interview". Everything else —
+#: including an event nobody has touched — counts as one.
+NON_INTERVIEW_CLASSIFICATIONS: frozenset[str] = frozenset(
+    {
+        EventClassification.NORMAL_MEETING.value,
+        EventClassification.PERSONAL.value,
+        EventClassification.IGNORED.value,
+    }
+)
+
+
+def counts_as_interview(classification: str) -> bool:
+    """Whether an imported event should be counted and drawn as an interview."""
+    return classification not in NON_INTERVIEW_CLASSIFICATIONS
 
 
 class EmailProvider(StrEnum):

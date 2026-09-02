@@ -335,6 +335,12 @@ def _normalise_event(item: dict[str, Any]) -> NormalizedEvent | None:
 
     return NormalizedEvent(
         provider_event_id=item["id"],
+        # Graph tags an instance of a series as `occurrence` or `exception`,
+        # and gives it the master's id.
+        is_recurring=(
+            item.get("type") in ("occurrence", "exception")
+            or bool(item.get("seriesMasterId"))
+        ),
         ical_uid=item.get("iCalUId"),
         etag=item.get("@odata.etag"),
         title=item.get("subject") or "(no title)",
