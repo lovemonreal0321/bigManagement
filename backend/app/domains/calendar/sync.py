@@ -193,6 +193,20 @@ def sync_connection(
                 result.error = exc.message
         except AppError as exc:
             result.error = exc.message
+        except Exception:
+            # A provider can return anything. An unexpected shape used to
+            # escape all the way out and 500 the whole request, which also
+            # stripped the CORS headers and made it look like a CORS fault in
+            # the browser. One calendar failing is a per-calendar problem.
+            logger.exception(
+                "unexpected error syncing calendar %s on connection %s",
+                calendar.id,
+                connection.id,
+            )
+            result.error = (
+                f"{calendar.name or 'A calendar'} could not be synced. "
+                "The server log has the details."
+            )
 
     if result.error:
         _record_failure(db, connection, result.error)
@@ -576,7 +590,26 @@ def _run(
 ) -> SyncSummaryOut:
     summary = SyncSummaryOut()
     for connection in connections:
-        result = sync_connection(db, workspace, connection, full=full)
+        try:
+            result = sync_connection(db, workspace, connection, full=full)
+        except Exception:
+            # Same reasoning one level up: syncing three calendars should not
+            # be all-or-nothing because one account is in a bad state.
+            logger.exception("unexpected error syncing connection %s", connection.id)
+            db.rollback()
+            message = (
+                "That calendar account could not be synced. The server log has "
+                "the details."
+            )
+            _record_failure(db, connection, message)
+            result = SyncResultOut(
+                connection_id=connection.id,
+                provider=connection.provider,
+                started_at=utcnow(),
+                finished_at=utcnow(),
+                error=message,
+            )
+
         summary.results.append(result)
         summary.total_events += result.events_created + result.events_updated
         if result.error:

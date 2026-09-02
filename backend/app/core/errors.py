@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,52 @@ class CalendarSyncError(AppError):
     def __init__(self, message: str | None = None, **kwargs: Any) -> None:
         kwargs.setdefault("retryable", True)
         super().__init__(message, **kwargs)
+
+
+class CatchUnhandledMiddleware:
+    """Turn an unhandled exception into a JSON 500 *inside* the middleware stack.
+
+    Starlette's own ServerErrorMiddleware sits outside everything, including
+    CORS. So an unexpected error produced a 500 with no
+    `Access-Control-Allow-Origin`, and the browser reported a CORS failure —
+    hiding the actual error and sending you hunting in the wrong place.
+
+    Added before CORSMiddleware so it ends up *inside* it: the response this
+    returns still gets the CORS headers, and the browser shows the real status
+    and message.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        try:
+            await self.app(scope, receive, send)
+        except Exception:
+            logger.exception(
+                "unhandled error on %s %s",
+                scope.get("method", "?"),
+                scope.get("path", "?"),
+            )
+            response = JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "internal_error",
+                        "message": (
+                            "Something went wrong on the server. The details are "
+                            "in the backend log."
+                        ),
+                        "details": {},
+                        "retryable": True,
+                    }
+                },
+            )
+            await response(scope, receive, send)
 
 
 def register_exception_handlers(app: FastAPI) -> None:

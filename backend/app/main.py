@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import BACKEND_DIR, settings
 from app.core.database import session_scope
-from app.core.errors import register_exception_handlers
+from app.core.errors import CatchUnhandledMiddleware, register_exception_handlers
 from app.workers.scheduler import shutdown_scheduler, start_scheduler
 
 logging.basicConfig(
@@ -77,6 +77,11 @@ app = FastAPI(
     docs_url="/docs",
     openapi_url="/openapi.json",
 )
+
+# Added before CORS so it ends up *inside* it. An unhandled error then still
+# comes back with CORS headers, showing its real status in the browser instead
+# of a misleading "blocked by CORS policy".
+app.add_middleware(CatchUnhandledMiddleware)
 
 if settings.cors_allow_any_origin:
     logger.warning(

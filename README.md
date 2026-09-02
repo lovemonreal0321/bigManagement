@@ -662,6 +662,19 @@ in `backend/data/.secret_key`, this should only happen if that file is
 unwritable, or if you run multiple backend processes with different explicit
 `SECRET_KEY` values. Check the startup log — it says which key source it used.
 
+**A request fails and the browser blames CORS.** Check the status code first.
+A 500 that reaches the browser without CORS headers is reported as a CORS
+error, which sends you hunting in the wrong place — the app now returns JSON
+with `Access-Control-Allow-Origin` even for unhandled errors, so the real
+status and message are visible. If you genuinely see a CORS refusal, the origin
+is not on the allowed list; see
+[Reaching it from another device](#roles-and-access).
+
+**Calendar sync reports an error for one account.** Sync is per calendar and
+per connection: one failing account no longer aborts the run, and the others
+still sync. The message names which calendar; the backend terminal has the
+traceback.
+
 **The page loads but every action fails.** The frontend and `CORS_ORIGINS`
 disagree about the port. `npm run dev` serves 3100 and the backend allows 3100;
 if you change one, change the other in `backend/.env`.
