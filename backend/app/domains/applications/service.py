@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.timeutils import local_date, utcnow
 from app.domains.activity import service as activity_service
+from app.domains.applications.joburl import duplicate_groups
 from app.domains.followups.status import compute_state
 from app.domains.interviews.serialize import stage_to_out
 from app.domains.interviews.types import TypeRegistry, load_registry, stage_badge
@@ -435,6 +436,21 @@ def _day_label(day: date | None) -> str:
     return f"{day.strftime('%a')} {day.day} {day.strftime('%b')} {day.year}"
 
 
+def _duplicate_note(other_ids: list[str], by_id: dict[str, Application]) -> str | None:
+    """Say which rows share this posting, in words rather than ids."""
+    if not other_ids:
+        return None
+    others = [by_id[other] for other in other_ids if other in by_id]
+    if not others:
+        return None
+    dates = sorted(
+        {o.applied_date.isoformat() for o in others if o.applied_date}
+    )
+    if dates:
+        return "Same job link as " + ", ".join(dates)
+    return f"Same job link as {len(others)} other row" + ("s" if len(others) > 1 else "")
+
+
 def build_sheet(
     db: Session,
     workspace: Workspace,
@@ -530,6 +546,12 @@ def build_sheet(
         ).unique()
     )
 
+    # Same posting, same person: applying twice by accident is easy when rows
+    # arrive by paste. Scoped to this sheet, because two different people
+    # going for the same job is a normal thing, not a mistake.
+    duplicates = duplicate_groups([(a.id, a.job_url) for a in rows])
+    by_id = {a.id: a for a in rows}
+
     grouped: dict[date | None, list[SheetRow]] = {}
     for application in rows:
         grouped.setdefault(application.applied_date, []).append(
@@ -542,6 +564,10 @@ def build_sheet(
                 job_url=application.job_url,
                 status=application.status,
                 is_archived=application.archived_at is not None,
+                duplicate_of=duplicates.get(application.id, []),
+                duplicate_note=_duplicate_note(
+                    duplicates.get(application.id, []), by_id
+                ),
             )
         )
 
@@ -572,6 +598,29 @@ def build_sheet(
         day=day_filter,
         search_ignored_day=bool(searching and day is not None),
     )
+
+
+def bulk_delete(
+    db: Session, workspace: Workspace, application_ids: list[str]
+) -> tuple[int, list[str]]:
+    """Delete several applications at once — the undo of a paste.
+
+    Ids that no longer exist are reported rather than raised: an undo arriving
+    after something was already removed should still do the rest of its job.
+    """
+    found = list(
+        db.scalars(
+            select(Application).where(
+                Application.workspace_id == workspace.id,
+                Application.id.in_(application_ids),
+            )
+        )
+    )
+    present = {application.id for application in found}
+    for application in found:
+        db.delete(application)
+    db.commit()
+    return len(found), [i for i in application_ids if i not in present]
 
 
 def bulk_create(

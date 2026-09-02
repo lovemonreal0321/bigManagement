@@ -37,9 +37,16 @@ class VolumeCounts(BaseModel):
     scheduled: int = 0
     cancelled: int = 0
     final_rounds: int = 0
+    #: Offers from applications *submitted* in this period. Cohort-anchored,
+    #: like the funnel above it.
     offers: int = 0
     accepted: int = 0
     rejected: int = 0
+
+    #: Offers *received* during this period, whenever the application was
+    #: submitted. Marking an old application as an offer today shows up here,
+    #: where the cohort figure above would stay at zero and look broken.
+    offers_received: int = 0
 
 
 class ConversionMetrics(BaseModel):

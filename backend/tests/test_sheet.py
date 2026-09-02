@@ -669,3 +669,186 @@ class TestBulkPaste:
             {"person_id": cast["john"]["id"], "rows": [{"company_name": "Fine Co"}]},
         )
         assert allowed.status_code == 201
+
+
+class TestDuplicateFlags:
+    """Applying twice to the same posting is easy when rows arrive by paste."""
+
+    def _rows(self, client: TestClient, headers: dict[str, str], person_id: str):
+        sheet = _sheet(client, headers, person_id=person_id)
+        return {r["company_name"]: r for d in sheet["days"] for r in d["rows"]}
+
+    def test_two_rows_with_the_same_link_are_both_flagged(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        for company in ("Amazon Again", "Amazon Twice"):
+            _application(
+                client,
+                cast["headers"],
+                cast["john"]["id"],
+                company,
+                job_url="https://amazon.jobs/1234",
+            )
+        rows = self._rows(client, cast["headers"], cast["john"]["id"])
+        assert rows["Amazon Again"]["duplicate_of"]
+        assert rows["Amazon Twice"]["duplicate_of"]
+        assert rows["Amazon Again"]["duplicate_note"]
+
+    def test_cosmetic_differences_still_count_as_the_same(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        _application(
+            client,
+            cast["headers"],
+            cast["john"]["id"],
+            "Plain",
+            job_url="https://amazon.jobs/9",
+        )
+        _application(
+            client,
+            cast["headers"],
+            cast["john"]["id"],
+            "Tracked",
+            job_url="http://www.amazon.jobs/9/?utm_source=linkedin",
+        )
+        rows = self._rows(client, cast["headers"], cast["john"]["id"])
+        assert rows["Plain"]["duplicate_of"]
+        assert rows["Tracked"]["duplicate_of"]
+
+    def test_different_postings_are_not_flagged(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        for company, url in (
+            ("One", "https://amazon.jobs/1"),
+            ("Two", "https://amazon.jobs/2"),
+        ):
+            _application(
+                client, cast["headers"], cast["john"]["id"], company, job_url=url
+            )
+        rows = self._rows(client, cast["headers"], cast["john"]["id"])
+        assert rows["One"]["duplicate_of"] == []
+        assert rows["Two"]["duplicate_of"] == []
+
+    def test_rows_without_a_link_are_never_flagged(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """An empty link is missing information, not a match."""
+        for company in ("Blank A", "Blank B"):
+            _application(client, cast["headers"], cast["john"]["id"], company)
+        rows = self._rows(client, cast["headers"], cast["john"]["id"])
+        assert rows["Blank A"]["duplicate_of"] == []
+
+    def test_the_same_link_on_another_person_is_not_a_duplicate(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """Two people going for the same job is normal, not a mistake."""
+        _application(
+            client,
+            cast["headers"],
+            cast["john"]["id"],
+            "Shared John",
+            job_url="https://shared.example.com/1",
+        )
+        _application(
+            client,
+            cast["headers"],
+            cast["maria"]["id"],
+            "Shared Maria",
+            job_url="https://shared.example.com/1",
+        )
+        john_rows = self._rows(client, cast["headers"], cast["john"]["id"])
+        assert john_rows["Shared John"]["duplicate_of"] == []
+
+
+class TestUndoAPaste:
+    def test_bulk_delete_removes_exactly_what_was_pasted(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        created = client.post(
+            f"{API}/applications/bulk",
+            json={
+                "person_id": cast["john"]["id"],
+                "rows": [{"company_name": f"Pasted {i}"} for i in range(3)],
+            },
+            headers=cast["headers"],
+        ).json()
+        before = _sheet(client, cast["headers"], person_id=cast["john"]["id"])["total"]
+
+        response = client.post(
+            f"{API}/applications/bulk-delete",
+            json={"application_ids": created["application_ids"]},
+            headers=cast["headers"],
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["deleted"] == 3
+
+        after = _sheet(client, cast["headers"], person_id=cast["john"]["id"])["total"]
+        assert after == before - 3
+
+    def test_undoing_twice_is_not_an_error(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """An undo arriving after the rows are already gone should still be
+        forgiving rather than blowing up."""
+        created = client.post(
+            f"{API}/applications/bulk",
+            json={
+                "person_id": cast["john"]["id"],
+                "rows": [{"company_name": "Once"}],
+            },
+            headers=cast["headers"],
+        ).json()
+        ids = created["application_ids"]
+        client.post(
+            f"{API}/applications/bulk-delete",
+            json={"application_ids": ids},
+            headers=cast["headers"],
+        )
+        second = client.post(
+            f"{API}/applications/bulk-delete",
+            json={"application_ids": ids},
+            headers=cast["headers"],
+        )
+        assert second.status_code == 200
+        assert second.json() == {"deleted": 0, "missing": ids}
+
+    def test_it_refuses_rows_belonging_to_someone_else(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        mine = client.post(
+            f"{API}/applications/bulk",
+            json={"person_id": cast["john"]["id"], "rows": [{"company_name": "Mine"}]},
+            headers=cast["headers"],
+        ).json()["application_ids"]
+        theirs = client.post(
+            f"{API}/applications/bulk",
+            json={"person_id": cast["maria"]["id"], "rows": [{"company_name": "Theirs"}]},
+            headers=cast["headers"],
+        ).json()["application_ids"]
+
+        client.post(
+            f"{API}/users",
+            json={
+                "username": "undoer",
+                "password": "undo-password",
+                "person_ids": [cast["john"]["id"]],
+            },
+            headers=cast["headers"],
+        )
+        token = client.post(
+            f"{API}/auth/login",
+            json={"username": "undoer", "password": "undo-password"},
+        ).json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        refused = client.post(
+            f"{API}/applications/bulk-delete",
+            json={"application_ids": mine + theirs},
+            headers=headers,
+        )
+        assert refused.status_code == 403
+        # And nothing was removed — the check runs before any deletion.
+        still_there = client.get(
+            f"{API}/applications/{theirs[0]}", headers=cast["headers"]
+        )
+        assert still_there.status_code == 200

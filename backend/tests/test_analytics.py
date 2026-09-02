@@ -86,21 +86,31 @@ class TestPassRateDenominator:
     def test_only_passed_and_failed_count(
         self, db: Session, workspace: Workspace, john: Person
     ) -> None:
-        """Spec §54: scheduled/waiting/cancelled must not dilute the rate."""
-        _make(
-            db,
-            workspace,
-            john,
-            "Amazon",
-            stages=[
-                ("technical", S.COMPLETED, Out.PASSED),
-                ("technical", S.COMPLETED, Out.PASSED),
-                ("technical", S.COMPLETED, Out.FAILED),
-                ("technical", S.COMPLETED, Out.WAITING),
-                ("technical", S.SCHEDULED, Out.PENDING),
-                ("technical", S.CANCELLED, Out.CANCELLED),
-            ],
-        )
+        """Spec §54: scheduled/waiting/cancelled must not dilute the rate.
+
+        One outcome per application, because a round left undecided *behind* a
+        later round is no longer a state the app keeps: reaching round two marks
+        round one passed. Six rounds stacked on one application would therefore
+        be rewritten before the rate was ever computed, and this test is about
+        the formula, not that inference.
+        """
+        for index, (stage_status, outcome) in enumerate(
+            [
+                (S.COMPLETED, Out.PASSED),
+                (S.COMPLETED, Out.PASSED),
+                (S.COMPLETED, Out.FAILED),
+                (S.COMPLETED, Out.WAITING),
+                (S.SCHEDULED, Out.PENDING),
+                (S.CANCELLED, Out.CANCELLED),
+            ]
+        ):
+            _make(
+                db,
+                workspace,
+                john,
+                f"Amazon {index}",
+                stages=[("technical", stage_status, outcome)],
+            )
         result = compute_analytics(db, workspace, [john], ALL_TIME)
         rate = result.conversions.interview_pass_rate
         assert rate.numerator == 2

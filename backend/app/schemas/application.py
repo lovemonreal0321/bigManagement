@@ -200,6 +200,11 @@ class SheetRow(ORMModel):
     job_url: str | None
     status: str
     is_archived: bool = False
+    #: Other rows on this person's sheet pointing at the same posting. Empty
+    #: for the overwhelming majority; non-empty rows carry the red flag.
+    duplicate_of: list[str] = Field(default_factory=list)
+    #: What the other rows are, so the flag can say *why* without a lookup.
+    duplicate_note: str | None = None
 
 
 class SheetDay(BaseModel):
@@ -260,3 +265,15 @@ class BulkApplicationCreate(BaseModel):
 class BulkApplicationResult(BaseModel):
     created: int
     application_ids: list[str]
+
+
+class BulkDeleteRequest(BaseModel):
+    """Undo of a paste: remove exactly the rows it created."""
+
+    application_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class BulkDeleteResult(BaseModel):
+    deleted: int
+    #: Ids that were already gone. Not an error — undo should be forgiving.
+    missing: list[str] = Field(default_factory=list)

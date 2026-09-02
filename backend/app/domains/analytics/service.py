@@ -8,7 +8,7 @@ which cohort anchor it uses.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
@@ -84,6 +84,42 @@ def _stage_period_clause(period: Period, tz: str | None):
 # --------------------------------------------------------------------------
 # Offer detection
 # --------------------------------------------------------------------------
+
+
+def _offers_received(
+    db: Session, workspace: Workspace, person_ids: list[str], period: Period
+) -> int:
+    """Offers that arrived during the period, whatever their application's age.
+
+    The funnel is application-anchored: it counts applications *submitted* in
+    the period and how far each went. That is the right shape for a conversion
+    rate, but it means marking a months-old application as an offer today
+    changes nothing on a "last 30 days" view — which reads as the app ignoring
+    you. This counts by when the offer landed instead.
+    """
+    stmt = (
+        select(func.count(func.distinct(Activity.application_id)))
+        .select_from(Activity)
+        .join(Application, Application.id == Activity.application_id)
+        .where(
+            Application.workspace_id == workspace.id,
+            Activity.type == ActivityType.APPLICATION_STATUS_CHANGED.value,
+            func.json_extract(Activity.meta, "$.to").in_(OFFER_STATUS_VALUES),
+        )
+    )
+    if person_ids:
+        stmt = stmt.where(Application.person_id.in_(person_ids))
+    if period.start:
+        stmt = stmt.where(Activity.created_at >= _as_utc(period.start))
+    if period.end:
+        stmt = stmt.where(Activity.created_at < _as_utc(period.end, end=True))
+    return int(db.scalar(stmt) or 0)
+
+
+def _as_utc(day: date, *, end: bool = False) -> datetime:
+    """A date boundary as an aware UTC datetime, for comparing against a log."""
+    moment = datetime.combine(day, time.min, tzinfo=UTC)
+    return moment + timedelta(days=1) if end else moment
 
 
 def _applications_that_reached_offer(db: Session, application_ids: list[str]) -> set[str]:
@@ -228,6 +264,7 @@ def compute_analytics(
         ),
         final_rounds=sum(1 for s in period_stages if s.type_key in final_keys),
         offers=offers_count,
+        offers_received=_offers_received(db, workspace, person_ids, period),
         accepted=accepted_count,
         rejected=rejected_count,
     )

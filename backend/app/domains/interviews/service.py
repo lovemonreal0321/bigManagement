@@ -308,9 +308,96 @@ def create_stage(
         interview_stage_id=stage.id,
         meta={"badge": badge, "type": type_key},
     )
+    _infer_earlier_rounds_passed(db, workspace, application, stage, registry)
     _maybe_advance_application(db, workspace, application, stage, registry)
     db.commit()
     return stage
+
+
+def _has_taken_place(stage: InterviewStage, now: datetime) -> bool:
+    """Whether this round is already behind us.
+
+    `completed` is explicit. A `scheduled` round counts too — plenty of people
+    never move the status off `scheduled` after the interview happens — unless
+    its start is *known* and still ahead, which is the one case where marking it
+    passed would be plainly wrong.
+    """
+    if stage.status == InterviewStatus.COMPLETED.value:
+        return True
+    if stage.status not in (
+        InterviewStatus.SCHEDULED.value,
+        InterviewStatus.RESCHEDULED.value,
+    ):
+        return False
+    return stage.scheduled_start is None or stage.scheduled_start < now
+
+
+def _infer_earlier_rounds_passed(
+    db: Session,
+    workspace: Workspace,
+    application: Application,
+    new_stage: InterviewStage,
+    registry: TypeRegistry,
+) -> None:
+    """Reaching a later round means the earlier ones were passed.
+
+    Only fills gaps. A round still sitting on `pending` or `waiting` never had a
+    result recorded, and being invited to the next one is the answer. A round
+    explicitly marked `failed`, `withdrawn` or `cancelled` is left exactly as it
+    is — the inference must never overwrite something a person actually
+    recorded, and a failed round followed by another is a real situation (a
+    re-interview, a different team).
+
+    Each change is written to the activity log with `inferred: true`, so it is
+    never a silent rewrite of someone's data.
+    """
+    now = utcnow()
+    earlier = [
+        stage
+        for stage in db.scalars(
+            select(InterviewStage).where(
+                InterviewStage.application_id == application.id,
+                InterviewStage.id != new_stage.id,
+                InterviewStage.sequence < new_stage.sequence,
+            )
+        )
+        # Undecided only.
+        if stage.outcome
+        in (InterviewOutcome.PENDING.value, InterviewOutcome.WAITING.value)
+        # And it has to have actually happened. A `planned` placeholder says
+        # nothing about passing, and neither does a round booked for next week
+        # — marking a future interview passed would be plainly wrong.
+        and _has_taken_place(stage, now)
+    ]
+    if not earlier:
+        return
+
+    person = db.get(Person, application.person_id)
+    for stage in earlier:
+        stage.outcome = InterviewOutcome.PASSED.value
+        stage.status = InterviewStatus.COMPLETED.value
+        if stage.result_date is None:
+            stage.result_date = local_date(
+                utcnow(), person.timezone if person else None
+            )
+
+        badge = stage_badge(
+            stage.round_number, registry.get(stage.type_key).short_label
+        )
+        activity_service.log(
+            db,
+            workspace_id=workspace.id,
+            activity_type=ActivityType.STAGE_OUTCOME_CHANGED,
+            message=(
+                f"{badge} marked passed — {application.company_name} moved on "
+                "to a later round"
+            ),
+            person_id=application.person_id,
+            application_id=application.id,
+            interview_stage_id=stage.id,
+            meta={"to": InterviewOutcome.PASSED.value, "inferred": True},
+        )
+    db.flush()
 
 
 def update_stage(

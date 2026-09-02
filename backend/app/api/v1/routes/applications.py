@@ -22,6 +22,8 @@ from app.schemas.application import (
     ApplicationUpdate,
     BulkApplicationCreate,
     BulkApplicationResult,
+    BulkDeleteRequest,
+    BulkDeleteResult,
     PipelineOut,
 )
 from app.schemas.common import OkResponse, Page
@@ -195,6 +197,33 @@ def bulk_create_applications(
         user, payload.person_id, what="this person's applications"
     )
     return app_service.bulk_create(db, workspace, payload)
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteResult)
+def bulk_delete_applications(
+    payload: BulkDeleteRequest,
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    user: CurrentUser,
+) -> BulkDeleteResult:
+    """Undo a paste. Every row is permission-checked before anything is removed.
+
+    An id that no longer exists is skipped rather than refused: an undo pressed
+    twice, or after the row was deleted another way, should still do the rest of
+    its job. A row belonging to someone else is still a hard refusal, and the
+    check runs over the whole batch before anything is deleted.
+    """
+    from app.models import Application
+
+    for application_id in payload.application_ids:
+        if db.get(Application, application_id) is None:
+            continue
+        permissions.require_application_edit(db, user, application_id)
+
+    deleted, missing = app_service.bulk_delete(
+        db, workspace, payload.application_ids
+    )
+    return BulkDeleteResult(deleted=deleted, missing=missing)
 
 
 @router.get("/{application_id}", response_model=ApplicationDetail)
