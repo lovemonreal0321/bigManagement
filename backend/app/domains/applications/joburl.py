@@ -2,21 +2,29 @@
 
 Comparing the raw strings is useless: the same posting arrives as
 `amazon.jobs/1234`, `https://www.amazon.jobs/1234/`, and
-`https://amazon.jobs/1234?utm_source=linkedin&gh_src=abc`. A duplicate flag
-that misses those is not worth showing.
+`https://amazon.jobs/1234?utm_source=linkedin`. A duplicate flag that misses
+those is not worth showing.
 
-Deliberately conservative: it strips things that provably do not identify a
-posting, and leaves everything else alone. A false "duplicate" on two genuinely
-different jobs would be worse than a missed one.
+The whole link is compared — path, query and fragment. Only a campaign tag can
+be dropped, because those are the one thing that provably never identifies a
+posting; everything else is somebody's job id somewhere. `?position=`,
+`?refId=`, `?pageNum=` and the `#/jobs/1234` of a hash-routed careers site all
+distinguish two openings at the same company, and treating any of them as noise
+collapsed a company's entire board into one row.
+
+The asymmetry is deliberate. A missed duplicate shows two rows that a person
+can see are the same. A false duplicate says "you already applied here" about a
+job they have not applied to, and that one costs an application.
 """
 
 from __future__ import annotations
 
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-#: Parameters that carry campaign or referral information rather than identity.
-#: Anything not listed here is kept, because on many boards the job id lives in
-#: the query string (`?jobId=`, `?gh_jid=`, `?lever-id=`).
+#: Campaign and click tracking, and nothing else. Every parameter here is added
+#: by an ad platform or a share link; none is ever a posting's identity. Any
+#: parameter not on this list is kept, because on real boards the job id lives
+#: in one of them (`?jobId=`, `?gh_jid=`, `?position=`, `?refId=`).
 TRACKING_PARAMS: frozenset[str] = frozenset(
     {
         "utm_source",
@@ -25,23 +33,19 @@ TRACKING_PARAMS: frozenset[str] = frozenset(
         "utm_term",
         "utm_content",
         "utm_id",
+        "utm_name",
         "gclid",
+        "gbraid",
+        "wbraid",
+        "dclid",
         "fbclid",
         "msclkid",
+        "twclid",
+        "igshid",
         "mc_cid",
         "mc_eid",
-        "ref",
-        "referer",
-        "referrer",
-        "source",
-        "src",
-        "trk",
-        "trkCampaign",
-        "originalSubdomain",
-        "refId",
-        "eBP",
-        "position",
-        "pageNum",
+        "_hsenc",
+        "_hsmi",
     }
 )
 
@@ -76,14 +80,22 @@ def normalise_job_url(raw: str | None) -> str | None:
 
     kept = [
         (key, value)
-        for key, value in parse_qsl(parts.query, keep_blank_values=False)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
         if key not in TRACKING_PARAMS
     ]
     # Sorted so parameter order does not create a false difference.
     query = "&".join(f"{k}={v}" for k, v in sorted(kept))
 
-    # The scheme and fragment never distinguish one posting from another.
-    return urlunsplit(("", host, path, query, "")).lstrip("/") or host
+    # A fragment is kept only when it carries structure — `#/jobs/1234` is
+    # where a hash-routed careers site keeps the posting, and dropping it made
+    # every job on that site look like the same one. A bare `#apply` names a
+    # section of one page and is discarded.
+    fragment = parts.fragment.rstrip("/")
+    if not any(char in fragment for char in "/=&"):
+        fragment = ""
+
+    # The scheme never distinguishes one posting from another.
+    return urlunsplit(("", host, path, query, fragment)).lstrip("/") or host
 
 
 def duplicate_groups(rows: list[tuple[str, str | None]]) -> dict[str, list[str]]:
