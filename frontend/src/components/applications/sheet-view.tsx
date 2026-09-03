@@ -95,18 +95,6 @@ const COLUMN_LABELS: Record<Field, string> = {
 const NEW_ROW = "__new__";
 
 /**
- * The sheet body scrolls on its own so the toolbar above it — person, day,
- * search, counts — stays put. Two hundred rows in a day is an ordinary volume
- * here, and scrolling the whole page to reach them took the controls with it.
- *
- * The height is measured rather than hard-coded because what sits above the
- * grid changes: the toolbar wraps on a narrow window, and the person tabs come
- * and go.
- */
-const MIN_GRID_HEIGHT = 260;
-const GRID_BOTTOM_GAP = 16;
-
-/**
  * A new row has no job title, because the sheet does not show one. Rather than
  * refuse the row, it is stored with this placeholder and can be named later on
  * the detail page.
@@ -214,36 +202,6 @@ export function SheetView({
   // own undo and stealing it would be worse than not offering the shortcut.
   useUndoShortcut(runUndo, canUndo);
 
-  const gridRef = React.useRef<HTMLDivElement>(null);
-  const [gridHeight, setGridHeight] = React.useState<number | null>(null);
-
-  React.useLayoutEffect(() => {
-    const element = gridRef.current;
-    if (!element) return;
-
-    const measure = () => {
-      const next = Math.max(
-        MIN_GRID_HEIGHT,
-        window.innerHeight -
-          element.getBoundingClientRect().top -
-          GRID_BOTTOM_GAP,
-      );
-      // Bailing out on an unchanged value matters: the observer below watches
-      // the body, and the body's height is what this changes.
-      setGridHeight((current) =>
-        current !== null && Math.abs(current - next) < 1 ? current : next,
-      );
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(document.body);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, []);
 
   const [editing, setEditing] = React.useState<Cell | null>(null);
   const [draft, setDraft] = React.useState("");
@@ -603,9 +561,12 @@ export function SheetView({
   }
 
   return (
-    <div className="flex flex-col">
+    // The sheet fills whatever height the page hands it, and only the grid
+    // inside it scrolls. Two hundred rows in a day is an ordinary volume here,
+    // and scrolling the page to reach them took the controls with it.
+    <div className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+      <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2">
         {/* Showing one day keeps the blank row within reach; without it a long
             sheet has to be scrolled to the bottom before anything can be
             added. */}
@@ -739,11 +700,7 @@ export function SheetView({
       </div>
 
       {/* Grid */}
-      <div
-        ref={gridRef}
-        className="overflow-auto rounded-lg border border-border bg-surface"
-        style={gridHeight === null ? undefined : { maxHeight: gridHeight }}
-      >
+      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
         <table className="w-full border-collapse text-sm">
           {/* Sticky on the cells rather than the row: `position: sticky` on a
               `thead` is not honoured everywhere, and the background has to be

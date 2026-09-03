@@ -138,7 +138,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
+    // The shell owns the viewport, and `main` is what scrolls. Pages that want
+    // a region of their own to scroll — the applications sheet, whose header is
+    // no use once it has scrolled away — can then fill the height with `h-full`
+    // instead of measuring it.
+    <div className="flex h-screen overflow-hidden bg-background">
       {/* Desktop sidebar */}
       <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface lg:flex">
         <div className="px-4 py-4">
@@ -249,7 +253,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 sm:py-5">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
           {children}
         </main>
       </div>

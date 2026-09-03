@@ -202,9 +202,15 @@ export default function ApplicationsPage() {
           : [...current, value],
       );
 
+  const isSheet = view === "sheet";
+
   return (
-    <div>
+    // The sheet claims the full height so its grid can scroll on its own with
+    // the controls above it pinned. Every other view keeps the page's ordinary
+    // scrolling, where a long list running past the fold is expected.
+    <div className={isSheet ? "flex h-full min-h-0 flex-col" : undefined}>
       <PageHeader
+        className={isSheet ? "shrink-0" : undefined}
         title="Applications"
         description={
           view === "pipeline"
@@ -382,10 +388,10 @@ export default function ApplicationsPage() {
               )
             : undefined
         }
-        className="mb-3"
+        className="mb-3 shrink-0"
       />
 
-      {view === "sheet" ? (
+      {isSheet ? (
         sheet.isError ? (
           <Card>
             <ErrorState

@@ -6,7 +6,7 @@ scheduled, and marking an application as an offer appearing to do nothing.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -326,3 +326,49 @@ class TestFutureRoundsAreLeftAlone:
         )
         assert after["outcome"] == "pending"
         assert after["status"] == "scheduled"
+
+
+class TestOffersAcrossTheDateLine:
+    """The evening hole.
+
+    A period's dates are the workspace's local ones; the activity log is in
+    UTC. Comparing them directly loses the offset, so for a New York workspace
+    an offer recorded after 20:00 landed on the next UTC day, past the period's
+    end, and the tile read zero — four hours a day of the exact symptom this
+    figure was added to cure. Rather than wait for the clock, each case moves
+    the logged moment to a different hour of the same local day. Every one of
+    them is today, so every one of them must count.
+    """
+
+    def _offers_received(self, client: TestClient, headers: dict[str, str]) -> int:
+        response = client.get(f"{API}/analytics?period=last_30_days", headers=headers)
+        assert response.status_code == 200, response.text
+        return response.json()["volume"]["offers_received"]
+
+    @pytest.mark.parametrize("local_hour", [0, 9, 15, 20, 23])
+    def test_an_offer_counts_whatever_the_hour_of_the_local_day(
+        self, client: TestClient, db, cast: dict, local_hour: int
+    ) -> None:
+        from app.models import Activity
+
+        app = _application(
+            client, cast["headers"], cast["john"]["id"], applied_date="2020-01-15"
+        )
+        client.post(
+            f"{API}/applications/{app['id']}/status",
+            json={"status": "offer"},
+            headers=cast["headers"],
+        )
+
+        moment = datetime.now(PERSON_TZ).replace(
+            hour=local_hour, minute=30, second=0, microsecond=0
+        )
+        rows = db.query(Activity).filter(
+            Activity.type == "application_status_changed"
+        )
+        assert rows.count() >= 1, "the status change should have been logged"
+        for activity in rows:
+            activity.created_at = moment.astimezone(UTC)
+        db.commit()
+
+        assert self._offers_received(client, cast["headers"]) == 1

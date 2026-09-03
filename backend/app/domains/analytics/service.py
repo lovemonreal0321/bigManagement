@@ -8,7 +8,7 @@ which cohort anchor it uses.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
@@ -143,7 +143,11 @@ def _calendar_interviews(
 
 
 def _offers_received(
-    db: Session, workspace: Workspace, person_ids: list[str], period: Period
+    db: Session,
+    workspace: Workspace,
+    person_ids: list[str],
+    period: Period,
+    tz: str | None,
 ) -> int:
     """Offers that arrived during the period, whatever their application's age.
 
@@ -165,17 +169,15 @@ def _offers_received(
     )
     if person_ids:
         stmt = stmt.where(Application.person_id.in_(person_ids))
-    if period.start:
-        stmt = stmt.where(Activity.created_at >= _as_utc(period.start))
-    if period.end:
-        stmt = stmt.where(Activity.created_at < _as_utc(period.end, end=True))
+    # The period's dates are local ones, and the log is in UTC. Treating a
+    # local date as if it were a UTC date loses the offset: for a New York
+    # workspace, "today" ends at 04:00 UTC tomorrow, so between 20:00 and
+    # midnight every offer recorded today fell outside "the last 30 days" and
+    # the tile read zero — the exact complaint this figure was added to fix.
+    if period.start is not None and period.end is not None:
+        start, end = range_bounds(period.start, period.end, tz)
+        stmt = stmt.where(Activity.created_at >= start, Activity.created_at < end)
     return int(db.scalar(stmt) or 0)
-
-
-def _as_utc(day: date, *, end: bool = False) -> datetime:
-    """A date boundary as an aware UTC datetime, for comparing against a log."""
-    moment = datetime.combine(day, time.min, tzinfo=UTC)
-    return moment + timedelta(days=1) if end else moment
 
 
 def _applications_that_reached_offer(db: Session, application_ids: list[str]) -> set[str]:
@@ -324,7 +326,7 @@ def compute_analytics(
         ),
         final_rounds=sum(1 for s in period_stages if s.type_key in final_keys),
         offers=offers_count,
-        offers_received=_offers_received(db, workspace, person_ids, period),
+        offers_received=_offers_received(db, workspace, person_ids, period, tz),
         accepted=accepted_count,
         rejected=rejected_count,
         calendar_interviews=calendar_total,
