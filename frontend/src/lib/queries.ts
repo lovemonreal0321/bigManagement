@@ -39,6 +39,7 @@ import type {
   InterviewType,
   Job,
   JobSummary,
+  PendingOffer,
   Page,
   PersonWithStats,
   Pipeline,
@@ -93,6 +94,8 @@ export const queryKeys = {
   jobs: (personIds: PersonIds, includeEnded: boolean) =>
     ["jobs", scope(personIds), includeEnded] as const,
   jobSummary: (personIds: PersonIds) => ["jobs", "summary", scope(personIds)] as const,
+  pendingOffers: (personIds: PersonIds) =>
+    ["jobs", "pending-offers", scope(personIds)] as const,
   interviewSearch: (personIds: PersonIds, search: string) =>
     ["interviews", "search", scope(personIds), search] as const,
   sheet: (
@@ -291,6 +294,16 @@ export function useJobSummary(personIds: PersonIds, enabled = true) {
   return useQuery({
     queryKey: queryKeys.jobSummary(personIds),
     queryFn: () => api.get<JobSummary>("/jobs/summary", personParams(personIds)),
+    enabled,
+  });
+}
+
+/** Offers on the board that nobody has turned into a job yet. */
+export function usePendingOffers(personIds: PersonIds, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.pendingOffers(personIds),
+    queryFn: () =>
+      api.get<PendingOffer[]>("/jobs/pending-offers", personParams(personIds)),
     enabled,
   });
 }

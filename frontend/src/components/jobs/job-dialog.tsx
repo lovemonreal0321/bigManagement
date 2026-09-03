@@ -39,26 +39,53 @@ import {
   type PersonWithStats,
 } from "@/lib/types";
 
+/**
+ * What is already known when a job is recorded from an offer.
+ *
+ * Everything the application can answer, so the form opens with the company,
+ * the role and the link already filled in and only the terms left to type.
+ */
+export interface JobPrefill {
+  person_id: string;
+  company_name: string;
+  title: string;
+  application_id: string;
+  interview_stage_id: string | null;
+  offered_date: string | null;
+}
+
 export function JobDialog({
   open,
   onOpenChange,
   job,
   people,
   defaultPersonId,
+  prefill,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   job?: Job | null;
   people: PersonWithStats[];
   defaultPersonId?: string | null;
+  prefill?: JobPrefill | null;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={job ? "Edit job" : "Add a job"} size="lg">
+      <DialogContent
+        title={
+          job
+            ? "Edit job"
+            : prefill
+              ? `Record the offer from ${prefill.company_name}`
+              : "Add a job"
+        }
+        size="lg"
+      >
         {/* Unmounted while closed, so the form resets without an effect. */}
         {open ? (
           <JobForm
             job={job ?? null}
+            prefill={job ? null : (prefill ?? null)}
             people={people}
             defaultPersonId={defaultPersonId ?? null}
             onDone={() => onOpenChange(false)}
@@ -71,11 +98,13 @@ export function JobDialog({
 
 function JobForm({
   job,
+  prefill,
   people,
   defaultPersonId,
   onDone,
 }: {
   job: Job | null;
+  prefill: JobPrefill | null;
   people: PersonWithStats[];
   defaultPersonId: string | null;
   onDone: () => void;
@@ -85,7 +114,7 @@ function JobForm({
   const [error, setError] = React.useState<string | null>(null);
 
   const [personId, setPersonId] = React.useState(
-    job?.person_id ?? defaultPersonId ?? people[0]?.id ?? "",
+    job?.person_id ?? prefill?.person_id ?? defaultPersonId ?? people[0]?.id ?? "",
   );
   const [salaryType, setSalaryType] = React.useState(job?.salary_type ?? "annual");
   const [annual, setAnnual] = React.useState(
@@ -102,7 +131,9 @@ function JobForm({
   );
   const [payPeriod, setPayPeriod] = React.useState(job?.pay_period ?? "biweekly");
   const [status, setStatus] = React.useState(job?.status ?? "offered");
-  const [applicationId, setApplicationId] = React.useState(job?.application_id ?? "");
+  const [applicationId, setApplicationId] = React.useState(
+    job?.application_id ?? prefill?.application_id ?? "",
+  );
 
   const basis =
     (Number(hoursPerWeek) || 0) * (Number(weeksPerYear) || 0);
@@ -182,6 +213,14 @@ function JobForm({
       notes: form.get("notes") || null,
     };
 
+    // Carried through from the offer rather than shown as fields: the day it
+    // landed is already recorded, and the interview it came from is a link,
+    // not something to retype.
+    if (prefill) {
+      body.offered_date = prefill.offered_date;
+      body.interview_stage_id = prefill.interview_stage_id;
+    }
+
     try {
       if (job) {
         await updateJob.mutateAsync({ id: job.id, body });
@@ -222,7 +261,7 @@ function JobForm({
             id="job-company"
             name="company_name"
             required
-            defaultValue={job?.company_name ?? ""}
+            defaultValue={job?.company_name ?? prefill?.company_name ?? ""}
             placeholder="Anthropic"
           />
         </Field>
@@ -231,7 +270,7 @@ function JobForm({
             id="job-title"
             name="title"
             required
-            defaultValue={job?.title ?? ""}
+            defaultValue={job?.title ?? prefill?.title ?? ""}
             placeholder="Senior AI Engineer"
           />
         </Field>

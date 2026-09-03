@@ -140,6 +140,29 @@ class JobOut(ORMModel):
     stage_badge: str | None = None
 
 
+class PendingOffer(BaseModel):
+    """An application that reached an offer and has no job recorded against it.
+
+    The bridge between the pipeline and this page. Without it an offer marked
+    on the board went nowhere visible: Jobs only ever listed rows somebody had
+    typed by hand, so the page stayed empty and looked broken.
+    """
+
+    application_id: str
+    person_id: str
+    person_name: str
+    person_color: str
+    person_initials: str
+    company_name: str
+    job_title: str
+    status: str
+    #: When the application reached an offer, read from the status log. Falls
+    #: back to the applied date when the move predates the log.
+    offered_date: date | None = None
+    #: The last interview it got through, so the job can point at it.
+    interview_stage_id: str | None = None
+
+
 class JobSummary(BaseModel):
     """The Jobs dashboard, per the selected people."""
 

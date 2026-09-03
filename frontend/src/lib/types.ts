@@ -1111,6 +1111,20 @@ export interface JobPersonSummary {
   next_pay_date: string | null;
 }
 
+/** An application that reached an offer with no job recorded against it. */
+export interface PendingOffer {
+  application_id: string;
+  person_id: string;
+  person_name: string;
+  person_color: string;
+  person_initials: string;
+  company_name: string;
+  job_title: string;
+  status: string;
+  offered_date: string | null;
+  interview_stage_id: string | null;
+}
+
 export interface JobSummary {
   live_count: number;
   offered_count: number;

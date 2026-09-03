@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError, ValidationError
@@ -13,10 +13,18 @@ from app.domains.activity import service as activity_service
 from app.domains.jobs.money import derive_amounts, gross_per_paycheck, pay_dates
 from app.enums import (
     LIVE_JOB_STATUSES,
+    OFFER_STATUSES,
     ActivityType,
     JobStatus,
 )
-from app.models import Application, InterviewStage, Job, Person, Workspace
+from app.models import (
+    Activity,
+    Application,
+    InterviewStage,
+    Job,
+    Person,
+    Workspace,
+)
 from app.schemas.job import (
     JobCreate,
     JobOut,
@@ -24,12 +32,118 @@ from app.schemas.job import (
     JobSummary,
     JobUpdate,
     PayDateOut,
+    PendingOffer,
 )
 
 #: How many paydays ahead to project. A quarter of fortnightly cheques is
 #: enough to answer "when am I next paid, and what is coming this quarter"
 #: without turning the page into a calendar.
 UPCOMING_PAY_DATES = 6
+
+#: Statuses that mean an offer is on the table, as stored values.
+OFFER_STATUS_VALUES = {status.value for status in OFFER_STATUSES}
+
+
+def list_pending_offers(
+    db: Session, workspace: Workspace, person_ids: list[str]
+) -> list[PendingOffer]:
+    """Offers on the board that nobody has turned into a job yet.
+
+    A job carries a salary, a start date and a pay period — none of which an
+    application knows — so reaching "offer" does not create one on its own.
+    What it does do is show up here, one click from being recorded, which is
+    the answer to "I marked an offer, why is the Jobs page empty".
+
+    An offer that already has a job against it drops off the list.
+    """
+    if not person_ids:
+        return []
+
+    taken = {
+        application_id
+        for application_id in db.scalars(
+            select(Job.application_id).where(
+                Job.workspace_id == workspace.id, Job.application_id.is_not(None)
+            )
+        )
+        if application_id
+    }
+
+    applications = db.scalars(
+        select(Application)
+        .where(
+            Application.workspace_id == workspace.id,
+            Application.person_id.in_(person_ids),
+            Application.status.in_(OFFER_STATUS_VALUES),
+        )
+        .order_by(Application.updated_at.desc())
+    )
+
+    people = {
+        person.id: person
+        for person in db.scalars(
+            select(Person).where(Person.id.in_(person_ids))
+        )
+    }
+
+    offers: list[PendingOffer] = []
+    for application in applications:
+        if application.id in taken:
+            continue
+        person = people.get(application.person_id)
+        if person is None:
+            continue
+        offers.append(
+            PendingOffer(
+                application_id=application.id,
+                person_id=person.id,
+                person_name=person.display_name,
+                person_color=person.color,
+                person_initials=person.initials,
+                company_name=application.company_name,
+                job_title=application.job_title,
+                status=application.status,
+                offered_date=_offered_on(db, application, person),
+                interview_stage_id=_last_stage_id(db, application.id),
+            )
+        )
+    return offers
+
+
+def _offered_on(
+    db: Session, application: Application, person: Person
+) -> date | None:
+    """The day this application reached an offer, from the status log.
+
+    Read in the person's timezone. The log is UTC, and a New York offer
+    recorded in the evening lands on the next UTC day — dating it tomorrow
+    would be wrong on the form it prefills.
+    """
+    moment = db.scalar(
+        select(Activity.created_at)
+        .where(
+            Activity.application_id == application.id,
+            Activity.type == ActivityType.APPLICATION_STATUS_CHANGED.value,
+            func.json_extract(Activity.meta, "$.to").in_(OFFER_STATUS_VALUES),
+        )
+        .order_by(Activity.created_at.desc())
+        .limit(1)
+    )
+    if moment is not None:
+        return local_date(moment, person.timezone)
+    # An offer recorded before the log existed, or seeded straight into the
+    # status. The applied date is the only honest answer left.
+    return application.applied_date
+
+
+def _last_stage_id(db: Session, application_id: str) -> str | None:
+    """The furthest interview it reached, so the job can point back at it."""
+    return db.scalar(
+        select(InterviewStage.id)
+        .where(InterviewStage.application_id == application_id)
+        .order_by(InterviewStage.round_number.desc(), InterviewStage.sequence.desc())
+        .limit(1)
+    )
 
 
 def get_job(db: Session, workspace: Workspace, job_id: str) -> Job:

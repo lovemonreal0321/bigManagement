@@ -674,3 +674,161 @@ class TestAnalytics:
         ).json()
         assert analytics["jobs"]["live_jobs"] == 0
         assert analytics["jobs"]["total_annual"] == 0
+
+
+class TestPendingOffers:
+    """The bridge from the pipeline to this page.
+
+    The reported problem: an application marked as an offer showed up nowhere
+    on Jobs, because Jobs only ever listed rows somebody had typed by hand. A
+    job carries a salary and a pay period that an application cannot know, so
+    reaching "offer" still does not create one — but it does surface here,
+    one click from being recorded.
+    """
+
+    def _offer(
+        self,
+        client: TestClient,
+        headers: dict[str, str],
+        person_id: str,
+        company: str = "Datadog",
+        status: str = "offer",
+    ) -> dict:
+        application = client.post(
+            f"{API}/applications",
+            json={
+                "person_id": person_id,
+                "company_name": company,
+                "job_title": "Staff Engineer",
+            },
+            headers=headers,
+        ).json()
+        response = client.post(
+            f"{API}/applications/{application['id']}/status",
+            json={"status": status},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        return application
+
+    def _pending(self, client: TestClient, headers: dict[str, str]) -> list[dict]:
+        response = client.get(f"{API}/jobs/pending-offers", headers=headers)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_an_offer_shows_up(self, client: TestClient, cast: dict) -> None:
+        self._offer(client, cast["headers"], cast["john"]["id"])
+        [offer] = self._pending(client, cast["headers"])
+        assert offer["company_name"] == "Datadog"
+        assert offer["job_title"] == "Staff Engineer"
+        assert offer["person_id"] == cast["john"]["id"]
+
+    @pytest.mark.parametrize("status", ["offer", "negotiating", "accepted"])
+    def test_every_flavour_of_offer_counts(
+        self, client: TestClient, cast: dict, status: str
+    ) -> None:
+        # An accepted offer is still one nobody has recorded a job for, and a
+        # negotiation is the moment the salary fields matter most.
+        self._offer(client, cast["headers"], cast["john"]["id"], status=status)
+        assert len(self._pending(client, cast["headers"])) == 1
+
+    @pytest.mark.parametrize("status", ["applied", "interviewing", "rejected"])
+    def test_anything_short_of_an_offer_does_not(
+        self, client: TestClient, cast: dict, status: str
+    ) -> None:
+        self._offer(client, cast["headers"], cast["john"]["id"], status=status)
+        assert self._pending(client, cast["headers"]) == []
+
+    def test_it_carries_the_day_the_offer_landed(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        self._offer(client, cast["headers"], cast["john"]["id"])
+        [offer] = self._pending(client, cast["headers"])
+        assert offer["offered_date"] == person_today().isoformat()
+
+    def test_recording_the_job_takes_it_off_the_list(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        application = self._offer(client, cast["headers"], cast["john"]["id"])
+        assert len(self._pending(client, cast["headers"])) == 1
+
+        _job(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            company_name="Datadog",
+            application_id=application["id"],
+        )
+        assert self._pending(client, cast["headers"]) == []
+
+    def test_a_job_recorded_without_a_link_leaves_it_listed(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        # Nothing ties the two together, so the offer is still untracked. The
+        # alternative — matching on company name — would hide a second offer
+        # from the same employer.
+        self._offer(client, cast["headers"], cast["john"]["id"])
+        _job(client, cast["headers"], person_id=cast["john"]["id"], company_name="Datadog")
+        assert len(self._pending(client, cast["headers"])) == 1
+
+    def test_two_offers_at_one_company_stay_separate(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        first = self._offer(client, cast["headers"], cast["john"]["id"])
+        self._offer(client, cast["headers"], cast["john"]["id"])
+        _job(
+            client,
+            cast["headers"],
+            person_id=cast["john"]["id"],
+            company_name="Datadog",
+            application_id=first["id"],
+        )
+        [remaining] = self._pending(client, cast["headers"])
+        assert remaining["application_id"] != first["id"]
+
+    def test_it_points_at_the_interview_that_won_it(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        application = self._offer(client, cast["headers"], cast["john"]["id"])
+        client.post(
+            f"{API}/applications/{application['id']}/stages",
+            json={"type_key": "technical"},
+            headers=cast["headers"],
+        )
+        final = client.post(
+            f"{API}/applications/{application['id']}/stages",
+            json={"type_key": "final"},
+            headers=cast["headers"],
+        )
+        assert final.status_code == 201, final.text
+        [offer] = self._pending(client, cast["headers"])
+        assert offer["interview_stage_id"] == final.json()["id"]
+
+    def test_it_is_scoped_like_every_other_job_read(
+        self, client: TestClient, cast: dict
+    ) -> None:
+        """Offers name a company and a salary negotiation, so the same rule
+        applies as to jobs themselves."""
+        self._offer(client, cast["headers"], cast["john"]["id"])
+
+        client.post(
+            f"{API}/users",
+            json={
+                "username": "offerpeeker",
+                "password": "job-password",
+                "role": "user",
+                "person_ids": [cast["john"]["id"]],
+                "can_view_jobs": False,
+            },
+            headers=cast["headers"],
+        )
+        token = client.post(
+            f"{API}/auth/login",
+            json={"username": "offerpeeker", "password": "job-password"},
+        ).json()["access_token"]
+
+        response = client.get(
+            f"{API}/jobs/pending-offers",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403, response.text
