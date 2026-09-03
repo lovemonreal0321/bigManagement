@@ -23,8 +23,8 @@ import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { JobDialog } from "@/components/jobs/job-dialog";
-import { PersonAvatar } from "@/components/shared/badges";
+import { JobDialog, type JobPrefill } from "@/components/jobs/job-dialog";
+import { PersonAvatar, StatusBadge } from "@/components/shared/badges";
 import { PageHeader } from "@/components/shared/page-header";
 import { ReadOnlyNote } from "@/components/shared/read-only";
 import {
@@ -61,8 +61,19 @@ import {
   PAY_PERIOD_LABELS,
 } from "@/lib/format";
 import { usePersonFilter } from "@/lib/person-filter";
-import { useDeleteJob, useEndJob, useJobs, useJobSummary } from "@/lib/queries";
-import { JOB_END_REASONS, type Job } from "@/lib/types";
+import {
+  useDeleteJob,
+  useEndJob,
+  useJobs,
+  useJobSummary,
+  usePendingOffers,
+} from "@/lib/queries";
+import {
+  JOB_END_REASONS,
+  type ApplicationStatus,
+  type Job,
+  type PendingOffer,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const STATUS_TONES: Record<string, string> = {
@@ -81,10 +92,31 @@ export default function JobsPage() {
   const [includeEnded, setIncludeEnded] = React.useState(true);
   const jobs = useJobs(queryIds, includeEnded, canViewJobs);
   const summary = useJobSummary(queryIds, canViewJobs);
+  const offers = usePendingOffers(queryIds, canViewJobs);
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Job | null>(null);
   const [ending, setEnding] = React.useState<Job | null>(null);
+  const [prefill, setPrefill] = React.useState<JobPrefill | null>(null);
+
+  function openBlank() {
+    setEditing(null);
+    setPrefill(null);
+    setDialogOpen(true);
+  }
+
+  function openFromOffer(offer: PendingOffer) {
+    setEditing(null);
+    setPrefill({
+      person_id: offer.person_id,
+      company_name: offer.company_name,
+      title: offer.job_title,
+      application_id: offer.application_id,
+      interview_stage_id: offer.interview_stage_id,
+      offered_date: offer.offered_date,
+    });
+    setDialogOpen(true);
+  }
 
   // Reachable by typing the URL even with the nav item hidden.
   if (!canViewJobs) {
@@ -116,10 +148,7 @@ export default function JobsPage() {
             <Button
               size="sm"
               variant="primary"
-              onClick={() => {
-                setEditing(null);
-                setDialogOpen(true);
-              }}
+              onClick={openBlank}
             >
               <Plus />
               Add job
@@ -129,6 +158,12 @@ export default function JobsPage() {
       />
 
       <JobSummaryCards summary={summary.data} loading={summary.isLoading} />
+
+      <PendingOffersCard
+        offers={offers.data ?? []}
+        canEdit={isAdmin}
+        onRecord={openFromOffer}
+      />
 
       <Card>
         <CardHeader
@@ -165,16 +200,17 @@ export default function JobsPage() {
           <EmptyState
             icon={Wallet}
             title="No jobs recorded yet"
-            description="Add one when an offer lands — it can be linked to the application that won it."
+            description={
+              (offers.data?.length ?? 0) > 0
+                ? "An offer on the board does not become a job on its own — it needs a salary and a pay period first. Record one from the offers above."
+                : "Add one when an offer lands — it can be linked to the application that won it."
+            }
             action={
               isAdmin ? (
                 <Button
                   size="sm"
                   variant="primary"
-                  onClick={() => {
-                    setEditing(null);
-                    setDialogOpen(true);
-                  }}
+                  onClick={openBlank}
                 >
                   Add job
                 </Button>
@@ -190,6 +226,7 @@ export default function JobsPage() {
                 canEdit={isAdmin}
                 onEdit={() => {
                   setEditing(job);
+                  setPrefill(null);
                   setDialogOpen(true);
                 }}
                 onEnd={() => setEnding(job)}
@@ -203,10 +240,83 @@ export default function JobsPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         job={editing}
+        prefill={prefill}
         people={people}
       />
       <EndJobDialog job={ending} onClose={() => setEnding(null)} />
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+
+/**
+ * Offers on the board that nobody has recorded a job for.
+ *
+ * The gap this closes: marking an application as an offer used to show up
+ * nowhere here, because Jobs only ever listed rows typed in by hand. It still
+ * does — a job needs a salary and a pay period that an application cannot know,
+ * so nothing is invented — but the offer now says so, one click from done.
+ */
+function PendingOffersCard({
+  offers,
+  canEdit,
+  onRecord,
+}: {
+  offers: PendingOffer[];
+  canEdit: boolean;
+  onRecord: (offer: PendingOffer) => void;
+}) {
+  if (offers.length === 0) return null;
+
+  return (
+    <Card className="border-status-offer/40">
+      <CardHeader
+        title={`${offers.length} offer${offers.length === 1 ? "" : "s"} not recorded yet`}
+        description={
+          canEdit
+            ? "These reached an offer on the board. Recording one adds its salary and payday to the figures above."
+            : "These reached an offer on the board. An administrator records the terms."
+        }
+      />
+      <ul className="divide-y divide-border">
+        {offers.map((offer) => (
+          <li
+            key={offer.application_id}
+            className="flex items-center gap-3 px-4 py-2.5"
+          >
+            <PersonAvatar
+              color={offer.person_color}
+              initials={offer.person_initials}
+              size="sm"
+              title={offer.person_name}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-foreground">
+                {offer.company_name}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {offer.job_title} · {offer.person_name}
+                {offer.offered_date
+                  ? ` · offered ${formatDateOnly(offer.offered_date)}`
+                  : ""}
+              </p>
+            </div>
+            <StatusBadge status={offer.status as ApplicationStatus} />
+            {canEdit ? (
+              <Button
+                size="xs"
+                variant="primary"
+                onClick={() => onRecord(offer)}
+              >
+                <Plus />
+                Record job
+              </Button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 

@@ -19,7 +19,13 @@ from app.core.deps import (
 from app.core.errors import NotFoundError
 from app.domains.jobs import service as job_service
 from app.schemas.common import OkResponse
-from app.schemas.job import JobCreate, JobOut, JobSummary, JobUpdate
+from app.schemas.job import (
+    JobCreate,
+    JobOut,
+    JobSummary,
+    JobUpdate,
+    PendingOffer,
+)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -73,6 +79,24 @@ def job_summary(
     person_ids = set(_readable_person_ids(user, scope))
     people = [person for person in scope.people if person.id in person_ids]
     return job_service.build_summary(db, workspace, people)
+
+
+@router.get("/pending-offers", response_model=list[PendingOffer])
+def pending_offers(
+    db: DbSession,
+    workspace: CurrentWorkspace,
+    scope: SelectedPeople,
+    user: CurrentUser,
+) -> list[PendingOffer]:
+    """Offers on the board with no job recorded against them.
+
+    Declared above `/{job_id}` — a literal path has to be registered before the
+    parameterised one or "pending-offers" is read as a job id.
+    """
+    person_ids = _readable_person_ids(user, scope)
+    if not person_ids:
+        return []
+    return job_service.list_pending_offers(db, workspace, person_ids)
 
 
 @router.post("", response_model=JobOut, status_code=201)
